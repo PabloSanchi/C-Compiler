@@ -1,5 +1,4 @@
 import os
-import os
 from sly import Lexer, Parser
 
 class CalcLexer(Lexer):
@@ -29,20 +28,16 @@ class CalcLexer(Lexer):
 definicion -> linea ; definicion
           | epsilon
 
-linea -> ID '=' exprOR {map[ID.lexval] = exprOR.s}
+linea -> ID '=' expr {map[ID.lexval] = expr.s}
 
+expr
 
-exprOR -> exprAND {exprORP.h = exprAND.s} exprORP {exprOR.s = exprORP.s}
-exprORP -> OR exprAND {exprORP1.h = exprORP.h || exprAND.s } exprORP {exprOR.s = exprORP.s}
-      | epsilon {exprORP.s = exprORP.s}}
-      
-exprAND -> exprNOT {exprANDP.h = exprNOT.s} exprANDP {exprAND.s = exprANDP.h}
-exprANDP -> AND exprNOT {exprANDP1.h = exprANDP.h && exprNOT.s} exprANDP
-      | epsilon {exprANDP.s = exprANDP.h}
-      
-      
+expr -> exprNOT {exprORP.h = expr.s} exprP {expr.s = exprP.s}
+exprP -> OR exrpNOT {exprP1.h = exprP.h || exrpNOT.s } exprP {exprP.s = exprP1.s}
+exprP -> AND exrpNOT {exprP1.h = exprP.h && exprNOT.s} exprP {exprP.s = exprP1.s}
+      | epsilon {exprP.s = exprP.h}
+            
 exprNOT -> NOT exprNOT {exprNOT.s = not exprNOT}
-     | '(' exprOR ')' {exprNOT.s = exprOR.s}
      | comp {exprNOT.s = comp.s}
  
     
@@ -66,10 +61,9 @@ prodP -> '*' fact {prodP1.h = prodP.h * fact.s} prodP {prodP.s = prodP1.s}
       |  '/' fact {prodP1.h = prodP.h / fact.s} prodP {prodP.s = prodP1.s}
       | epsilon {prodP.s = prodP.h}
 
-
 fact -> ID {fact.s = ID.lexval}
      | NUM {fact.s = NUM.lexval}
-     | '(' sum ')' {fact.s = sum.s}
+     | '(' expr ')' {fact.s = expr.s}
 '''
 
 class CalcParser(Parser):
@@ -86,49 +80,39 @@ class CalcParser(Parser):
     def definition(self, p):
         pass
     
-    @_('ID "=" exprOR')
+    @_('ID "=" expr')
     def line(self, p):
-        self.map[p.ID] = p.exprOR
+        self.map[p.ID] = p.expr
         
-    @_('exprAND exprORP')
-    def exprOR(self, p):
-        return p.exprORP
 
-    @_('OR exprAND empty1 exprORP')
-    def exprORP(self, p):
-        return int(p.empty1 or p.exprAND)
+    @_('exprNOT exprP')
+    def expr(self, p):
+        return p.exprP
+
+    @_('OR exprNOT empty1 exprP')
+    def exprP(self, p):
+        return p.exprP
+
+    @_('AND exprNOT empty2 exprP')
+    def exprP(self, p):
+        return p.exprP
 
     @_('')
     def empty1(self, p):
-        return p[-3]
-
-    @_('')
-    def exprORP(self, p):
-        return p[-1]
-
-    @_('exprNOT exprANDP')
-    def exprAND(self, p):
-        return p.exprANDP
-
-    @_('AND exprNOT empty2 exprANDP')
-    def exprANDP(self, p):
-        return int(p.empty2 and p.exprNOT)
+        return int(p[-3] or p[-1])
 
     @_('')
     def empty2(self, p):
-        return p[-3]
-    
+        return int(p[-3] and p[-1])
+
     @_('')
-    def exprANDP(self, p):
+    def exprP(self, p):
         return p[-1]
+    
 
     @_('"!" exprNOT')
     def exprNOT(self, p):
         return int(not p.exprNOT)
-
-    # @_('"(" exprOR ")"')
-    # def exprNOT(self, p):
-    #     return p.exprOR
 
     @_('comp')
     def exprNOT(self, p):
@@ -175,11 +159,11 @@ class CalcParser(Parser):
 
     @_('"+" prod empty4 sumP')
     def sumP(self, p):
-        return p.empty4 + p.prod
+        return p.sumP
         
-    @_('"-" prod empty4 sumP')
+    @_('"-" prod empty5 sumP')
     def sumP(self, p):
-        return p.empty4 - p.prod
+        return p.sumP
 
     @_('')
     def sumP(self, p):
@@ -187,27 +171,35 @@ class CalcParser(Parser):
 
     @_('')
     def empty4(self, p):
-        return p[-3]
+        return p[-3] + p[-1]
+    
+    @_('')
+    def empty5(self, p):
+        return p[-3] - p[-1]
     
     @_('fact prodP')
     def prod(self, p):
         return p.prodP
 
-    @_('"*" fact empty5 prodP')
+    @_('"*" fact empty6 prodP')
     def prodP(self, p):
-        return p.empty5 * p.fact
+        return p.prodP
 
-    @_('"/"  empty5 prodP')
+    @_('"/" fact empty7 prodP')
     def prodP(self, p):
-        return p.empty5 / p.fact
+        return p.prodP
 
     @_('')
     def prodP(self, p):
         return p[-1]
         
     @_('')    
-    def empty5(self, p):
-        return p[-3]
+    def empty6(self, p):
+        return p[-3] * p[-1]
+
+    @_('')    
+    def empty7(self, p):
+        return p[-3] // p[-1]
 
     @_('NUM')
     def fact(self, p):
@@ -221,9 +213,9 @@ class CalcParser(Parser):
     def fact(self, p):
         return -1 * p.fact
        
-    @_('"(" exprOR ")"')
+    @_('"(" expr ")"')
     def fact(self, p):
-        return p.exprOR
+        return p.expr
 
 
 # 2 * (2 / (2))
