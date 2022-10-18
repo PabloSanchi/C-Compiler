@@ -2,15 +2,18 @@ import os
 from sly import Lexer, Parser
 
 class CalcLexer(Lexer):
-    tokens = {INT,ID, NUM, EQ, LEQ, GEQ, NEQ, OR, AND}
-    literals = {'=', '!', '<', '>', '(', ')', ';', '+', '-', '*', '/'}
+    tokens = {VOID, INT, ID, NUM, EQ, LEQ, GEQ, NEQ, OR, AND}
+    literals = {'=', '!', '<', '>', '(', ')', ';', '+', '-', '*', '/', ',', '{', '}'}
     
     ignore = ' \t'
-    ignore_newline = r'\n+'
 
     ID = r'[a-zA-Z_][a-zA-Z0-9_]*'
     ID['int'] = INT
-
+    ID['void'] = VOID
+    '''
+    ID['char'] = CHAR
+    ID['FLOAT'] = FLOAT
+    '''
     EQ = r'=='
     LEQ = r'<='
     GEQ = r'>='
@@ -23,12 +26,44 @@ class CalcLexer(Lexer):
         t.value = int(t.value)
         return t
 
+    @_(r'\n+')
+    def newline(self, t):
+        self.lineno += t.value.count('\n')
+    def error(self, t):
+        print("Illegal character '%s'" % t.value[0])
+        self.index += 1
+        contador = -1
 
 '''
-definicion -> linea ; definicion
+
+starter -> funcion
+        | definicion
+funcion -> fun_type ID(params) {}
+params -> INT ID parametros
+        | epsilon
+parametros -> , INT ID parametros
+            | epsilon
+
+fun_type -> VOID
+          -> type
+definicion -> variable ; definicion
+          | call ; definicion
+          | assignment ; definicion
           | epsilon
 
-linea -> ID '=' expr {map[ID.lexval] = expr.s}
+call -> ID(args)
+args -> assign resto
+    | epsilon
+resto -> , assign resto
+    | epsilon
+    
+variable -> tipo {list.h = tipo.s} list
+
+list -> {assignment.h = list.h} assignment {assignments.h = assignment.h} assignments
+assignments -> , {assignment.h = assignments.h} assignment {assignments1.h = assignment.h} assignments1
+            | epsilon
+            
+assignment -> ID '=' expr {map[ID.lexval] = expr.s}
 
 expr
 
@@ -65,26 +100,108 @@ fact -> ID {fact.s = ID.lexval}
      | NUM {fact.s = NUM.lexval}
      | '(' expr ')' {fact.s = expr.s}
 '''
-
 class CalcParser(Parser):
     tokens = CalcLexer.tokens
     debugfile = 'parser.txt'
     
     def __init__(self):
         self.map = {}
+        self.funmap = {}
     
     def printMap(self):
         print(self.map)
 
-    @_('line ";" definition', '')
+#     funcion -> fun_type ID(params) {}
+# params -> INT ID parametros
+#         | epsilon
+# parametros -> , INT ID parametros
+#             | epsilon
+    @_('definition')
+    def starter(self, p):
+        pass
+
+    @_('fun_type ID "(" params ")" "{" "}"')
+    def function(self, p):
+        pass
+    
+    @_('INT ID parameters')
+    def params(self, p):
+        pass
+    
+    @_('')
+    def params(self, p):
+        pass
+    
+    @_('"," INT ID parameters')
+    def parameters(self, p):
+        pass
+
+    @_('')
+    def parameters(self, p):
+        pass
+    
+    @_('INT', 'VOID') 
+    def fun_type(self, p):
+        p[0]
+
+    @_('declare ";" definition', 'assign ";" definition', '')
     def definition(self, p):
         pass
     
     @_('ID "=" expr')
-    def line(self, p):
+    def assign(self, p):
+        if p.ID not in self.map:
+            raise SystemExit(f'Variable <{p.ID}> not defined')
+            
         self.map[p.ID] = p.expr
         
-
+    @_('expr')
+    def assign(self, p):
+        return p.expr
+    
+    
+    @_('INT list')
+    def declare(self, p): # we do not need to know its type because they are all integers for now
+        pass #return p.type
+    
+    @_('empty8 assignment empty9 assignments')
+    def list(self, p):
+       pass # return p[-2]
+        
+    @_('')
+    def empty8(self, p):
+        return p[-1]
+    
+    @_('')
+    def empty9(self, p):
+        return p[-3]
+    
+    @_('"," empty10 assignment empty11 assignments', '')
+    def assignments(self, p):
+        pass # return
+       
+    @_('')
+    def empty10(self, p):
+        return p[-2]
+    
+    @_('')
+    def empty11(self, p):
+        return p[-4]   
+    
+    @_('ID "=" expr')
+    def assignment(self, p):
+        if p.ID not in self.map:
+            self.map[p.ID] = p.expr
+        else:
+            raise SystemExit(f'Variable <{p.ID}> already defined!')
+        
+    @_('ID')
+    def assignment(self, p):
+        if p.ID not in self.map:
+            self.map[p.ID] = 0
+        else:
+            raise SystemExit(f'Variable <{p.ID}> already defined!')
+        
     @_('exprNOT exprP')
     def expr(self, p):
         return p.exprP
@@ -109,7 +226,6 @@ class CalcParser(Parser):
     def exprP(self, p):
         return p[-1]
     
-
     @_('"!" exprNOT')
     def exprNOT(self, p):
         return int(not p.exprNOT)
