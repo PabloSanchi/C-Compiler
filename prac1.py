@@ -114,12 +114,7 @@ class CalcParser(Parser):
             print(f'-> Environment {key}')
             for key1, val2 in val.items():
                 print(f'{key1} = {val2.get()}, env = {val2.env}')
-            
             print('--------')
-            # for key, val in self.map.items():
-            #     for v2 in val:
-            #         print(f'{v2}')
-                #print(f'{key} = {val.get()}, env = {val.env}')
 
     @_('fun_type ID "(" params ")" emptyEnv "{" definition "}"')
     def function(self, p):
