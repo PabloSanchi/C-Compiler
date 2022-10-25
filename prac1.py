@@ -109,18 +109,27 @@ class CalcParser(Parser):
         self.env = 'global'
     
     def printMap(self):
-        print(self.map)
+        # print(self.map)
+        for key, val in self.map.items():
+            print(f'-> Environment {key}')
+            for key1, val2 in val.items():
+                print(f'{key1} = {val2.get()}, env = {val2.env}')
+            
+            print('--------')
             # for key, val in self.map.items():
             #     for v2 in val:
             #         print(f'{v2}')
                 #print(f'{key} = {val.get()}, env = {val.env}')
-        # print(self.map)
 
-    @_('fun_type ID "(" params ")" "{" definition "}"')
+    @_('fun_type ID "(" params ")" emptyEnv "{" definition "}"')
     def function(self, p):
         # TODO nodo_funcion
-        self.map[p.ID] = {}
-        self.env = p.ID
+        self.env = 'global' # restore environment
+        
+    @_('')
+    def emptyEnv(self, p):
+        self.map[p[-4]] = {}
+        self.env = p[-4]
     
     @_('INT ID parameters')
     def params(self, p):
