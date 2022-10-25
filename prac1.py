@@ -2,7 +2,7 @@ import os
 from sly import Lexer, Parser
 
 class CalcLexer(Lexer):
-    tokens = {VOID, INT, ID, NUM, EQ, LEQ, GEQ, NEQ, OR, AND}
+    tokens = {PRINTF, PERC_D, SCANF, VOID, INT, ID, NUM, EQ, LEQ, GEQ, NEQ, OR, AND}
     literals = {'=', '!', '<', '>', '(', ')', ';', '+', '-', '*', '/', ',', '{', '}'}
     
     ignore = ' \t'
@@ -10,10 +10,10 @@ class CalcLexer(Lexer):
     ID = r'[a-zA-Z_][a-zA-Z0-9_]*'
     ID['int'] = INT
     ID['void'] = VOID
-    '''
-    ID['char'] = CHAR
-    ID['FLOAT'] = FLOAT
-    '''
+    ID['printf'] = PRINTF 
+    ID['%d'] = PERC_D 
+    ID['scanf'] = SCANF
+    
     EQ = r'=='
     LEQ = r'<='
     GEQ = r'>='
@@ -105,24 +105,22 @@ class CalcParser(Parser):
     debugfile = 'parser.txt'
     
     def __init__(self):
-        self.map = {}
-        self.funmap = {}
+        self.map = {'global': {}}
+        self.env = 'global'
     
     def printMap(self):
         print(self.map)
-
-#     funcion -> fun_type ID(params) {}
-# params -> INT ID parametros
-#         | epsilon
-# parametros -> , INT ID parametros
-#             | epsilon
-    # @_('definition')
-    # def starter(self, p):
-    #     pass
+            # for key, val in self.map.items():
+            #     for v2 in val:
+            #         print(f'{v2}')
+                #print(f'{key} = {val.get()}, env = {val.env}')
+        # print(self.map)
 
     @_('fun_type ID "(" params ")" "{" definition "}"')
     def function(self, p):
-        pass
+        # TODO nodo_funcion
+        self.map[p.ID] = {}
+        self.env = p.ID
     
     @_('INT ID parameters')
     def params(self, p):
@@ -150,10 +148,10 @@ class CalcParser(Parser):
     
     @_('ID "=" expr')
     def assign(self, p):
-        if p.ID not in self.map:
+        if p.ID not in self.map[self.env]:
             raise SystemExit(f'Variable <{p.ID}> not defined')
             
-        self.map[p.ID] = p.expr
+        self.map[self.env][p.ID] = p.expr
         
     @_('expr')
     def assign(self, p):
@@ -162,6 +160,7 @@ class CalcParser(Parser):
     
     @_('INT list')
     def declare(self, p): # we do not need to know its type because they are all integers for now
+        
         pass #return p.type
     
     @_('empty8 assignment empty9 assignments')
@@ -190,15 +189,16 @@ class CalcParser(Parser):
     
     @_('ID "=" expr')
     def assignment(self, p):
-        if p.ID not in self.map:
-            self.map[p.ID] = p.expr
+        if p.ID not in self.map[self.env]:
+            idNode = IdNode(p.ID, p.expr, self.env)
+            self.map[self.env][p.ID] = idNode
         else:
             raise SystemExit(f'Variable <{p.ID}> already defined!')
         
     @_('ID')
     def assignment(self, p):
-        if p.ID not in self.map:
-            self.map[p.ID] = 0
+        if p.ID not in self.map[self.env]:
+            self.map[self.env][p.ID] = IdNode(p.ID, 0, self.env)
         else:
             raise SystemExit(f'Variable <{p.ID}> already defined!')
         
@@ -216,11 +216,13 @@ class CalcParser(Parser):
 
     @_('')
     def empty1(self, p):
-        return int(p[-3] or p[-1])
+        # return int(p[-3] or p[-1])
+        return OperationNode('or', p[-3], p[-1])
 
     @_('')
     def empty2(self, p):
-        return int(p[-3] and p[-1])
+        # return int(p[-3] and p[-1])
+        return OperationNode('and', p[-3], p[-1])
 
     @_('')
     def exprP(self, p):
@@ -228,7 +230,8 @@ class CalcParser(Parser):
     
     @_('"!" exprNOT')
     def exprNOT(self, p):
-        return int(not p.exprNOT)
+        # return int(not p.exprNOT)
+        return OperationNode('not', p.exprNOT)
 
     @_('comp')
     def exprNOT(self, p):
@@ -240,26 +243,26 @@ class CalcParser(Parser):
     
     @_('EQ sum empty3')
     def compP(self, p):
-        return int(p.empty3 == p.sum)
+        return OperationNode('==', p.empty3, p.sum)#int(p.empty3 == p.sum)
 
     @_('NEQ sum empty3')
     def compP(self, p):
-        return int(p.empty3 != p.sum)
+        return OperationNode('!=', p.empty3, p.sum)
     
     @_('LEQ sum empty3')
     def compP(self, p):
-        return int(p.empty3 <= p.sum)
+        return OperationNode('<=', p.empty3, p.sum)
     @_('GEQ sum empty3')
     def compP(self, p):
-        return int(p.empty3 >= p.sum)
+        return OperationNode('>=', p.empty3, p.sum)
     
     @_('"<" sum empty3')
     def compP(self, p):
-        return int(p.empty3 < p.sum)
+        return OperationNode('<', p.empty3, p.sum)
     
     @_('">" sum empty3')
     def compP(self, p):
-        return int(p.empty3 > p.sum)
+        return OperationNode('>', p.empty3, p.sum)
 
     @_('')
     def compP(self, p):
@@ -287,11 +290,13 @@ class CalcParser(Parser):
 
     @_('')
     def empty4(self, p):
-        return p[-3] + p[-1]
+        # return p[-3] + p[-1]
+        return OperationNode('+', p[-3], p[-1])
     
     @_('')
     def empty5(self, p):
-        return p[-3] - p[-1]
+        # return p[-3] - p[-1]
+        return OperationNode('-', p[-3], p[-1])
     
     @_('fact prodP')
     def prod(self, p):
@@ -311,23 +316,29 @@ class CalcParser(Parser):
         
     @_('')    
     def empty6(self, p):
-        return p[-3] * p[-1]
+        # return p[-3] * p[-1]
+        return OperationNode('*', p[-3], p[-1])
 
     @_('')    
     def empty7(self, p):
-        return p[-3] // p[-1]
+        # return p[-3] // p[-1]
+        return OperationNode('/', p[-3], p[-1])
+        
 
     @_('NUM')
     def fact(self, p):
-        return p.NUM
+        return NumNode(p.NUM)
+        # return p.NUM
 
     @_('ID')
     def fact(self, p):
-        return self.map[p.ID]
+        return IdNode(p.ID)
+        # return self.map[p.ID]
 
     @_('"-" fact')
     def fact(self, p):
-        return -1 * p.fact
+        return UniqueNode('-', p.fact.get())
+        # return -1 * p.fact
        
     @_('"(" expr ")"')
     def fact(self, p):
@@ -357,7 +368,54 @@ class CalcParser(Parser):
     def fun_params(self, p):
         pass
 
+class OperationNode:
+    def __init__(self, operator, param1, param2):
+        self.operator = operator
+        self.param1 = param1
+        self.param2 = param2
         
+    def get(self):
+ 
+        return eval(f'int(self.param1.get() {self.operator} self.param2.get())')
+        
+    def write(self):
+        return f'{self.param1.write()} {self.operator} {self.param2.write()}'
+class UniqueNode:
+    def __init__(self, operator, param):   
+        self.param = param
+        self.operator = operator
+    def get(self):
+        return eval(f'int({self.operator} self.param.get())')
+
+    def write(self):
+        return f'{self.operator} {self.param.write()}'    
+class FunctionNode:
+    def __init__(self, name, returnType, numParam):
+        self.name = name
+        self.returnType = returnType
+        self.numParam = numParam
+
+class IdNode:
+    def __init__(self, id, val, env = None):
+        self.id = id
+        self.val = val
+        self.env = env
+    def get(self):
+        return self.val.get()
+        
+    def write(self, p):
+        return f'{self.id}, {self.val}, {self.env}'
+    
+class NumNode:
+    def __init__(self, num):
+        self.num = num
+    
+    def get(self):
+        return self.num
+
+    def write(self):
+        return f'{self.num}'
+
 if __name__ == '__main__':
     lexer = CalcLexer()
     parser = CalcParser()
@@ -377,7 +435,11 @@ if __name__ == '__main__':
 
         except EOFError:
             break
-    
+        
+#         text = '''int main(void) { int a = 2, c = 3; } 
+# int foo(void) { int a = 3, c = 4; } 
+#         '''
+
         if text:
             tokenList = lexer.tokenize(text)
             parser.parse(tokenList)
