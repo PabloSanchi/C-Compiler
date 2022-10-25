@@ -116,11 +116,11 @@ class CalcParser(Parser):
 #         | epsilon
 # parametros -> , INT ID parametros
 #             | epsilon
-    @_('definition')
-    def starter(self, p):
-        pass
+    # @_('definition')
+    # def starter(self, p):
+    #     pass
 
-    @_('fun_type ID "(" params ")" "{" "}"')
+    @_('fun_type ID "(" params ")" "{" definition "}"')
     def function(self, p):
         pass
     
@@ -128,7 +128,7 @@ class CalcParser(Parser):
     def params(self, p):
         pass
     
-    @_('')
+    @_('', 'VOID')
     def params(self, p):
         pass
     
@@ -333,9 +333,31 @@ class CalcParser(Parser):
     def fact(self, p):
         return p.expr
 
+    @_('call')
+    def fact(self, p):
+        return p.call
 
-# 2 * (2 / (2))
+    @_('ID "(" fun_param fun_params ")"')
+    def call(self, p):
+        pass
 
+    @_('expr')
+    def fun_param(self, p):
+        pass
+
+    @_('')
+    def fun_param(self, p):
+        pass
+
+    @_(', expr fun_params')
+    def fun_params(self, p):
+        pass
+
+    @_('')
+    def fun_params(self, p):
+        pass
+
+        
 if __name__ == '__main__':
     lexer = CalcLexer()
     parser = CalcParser()
