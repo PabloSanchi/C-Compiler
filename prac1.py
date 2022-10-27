@@ -2,17 +2,19 @@ import os
 from sly import Lexer, Parser
 
 class CalcLexer(Lexer):
-    tokens = {PRINTF, PERC_D, SCANF, VOID, INT, ID, NUM, EQ, LEQ, GEQ, NEQ, OR, AND}
+    tokens = {STRING, PRINTF, PERC_D, SCANF, VOID, INT, ID, NUM, EQ, LEQ, GEQ, NEQ, OR, AND}
     literals = {'=', '!', '<', '>', '(', ')', ';', '+', '-', '*', '/', ',', '{', '}'}
     
     ignore = ' \t'
 
+    STRING = r'".*"'
     ID = r'[a-zA-Z_][a-zA-Z0-9_]*'
     ID['int'] = INT
     ID['void'] = VOID
     ID['printf'] = PRINTF 
     ID['%d'] = PERC_D 
     ID['scanf'] = SCANF
+    
     
     EQ = r'=='
     LEQ = r'<='
@@ -112,8 +114,10 @@ class CalcParser(Parser):
         # print(self.map)
         for key, val in self.map.items():
             print(f'-> Environment {key}')
+            
             for key1, val2 in val.items():
                 print(f'{key1} = {val2.get()}, env = {val2.env}')
+                
             print('--------')
 
     @_('fun_type ID "(" params ")" emptyEnv "{" definition "}"')
@@ -146,8 +150,22 @@ class CalcParser(Parser):
     def fun_type(self, p):
         p[0]
 
-    @_('declare ";" definition', 'assign ";" definition', '')
+    @_('declare ";" definition', 
+       'assign ";" definition', 
+       'PRINTF "(" content values ")" ";" definition', '')
     def definition(self, p):
+        pass
+    
+    @_('STRING')
+    def content(self, p):
+        pass
+    
+    @_(', ID values')
+    def values(self, p):
+        pass
+    
+    @_('')
+    def values(self, p):
         pass
     
     @_('ID "=" expr')
@@ -161,36 +179,36 @@ class CalcParser(Parser):
     def assign(self, p):
         return p.expr
     
-    
     @_('INT list')
     def declare(self, p): # we do not need to know its type because they are all integers for now
-        
         pass #return p.type
     
-    @_('empty8 assignment empty9 assignments')
+    # @_('empty8 assignment empty9 assignments')
+    @_('assignment assignments')
     def list(self, p):
        pass # return p[-2]
         
-    @_('')
-    def empty8(self, p):
-        return p[-1]
+    # @_('')
+    # def empty8(self, p):
+    #     return p[-1]
     
-    @_('')
-    def empty9(self, p):
-        return p[-3]
+    # @_('')
+    # def empty9(self, p):
+    #     return p[-3]
     
-    @_('"," empty10 assignment empty11 assignments', '')
+    # @_('"," empty10 assignment empty11 assignments', '')
+    @_('"," assignment assignments', '')
     def assignments(self, p):
         pass # return
-       
-    @_('')
-    def empty10(self, p):
-        return p[-2]
-    
-    @_('')
-    def empty11(self, p):
-        return p[-4]   
-    
+
+    # @_('')
+    # def empty10(self, p):
+    #     return p[-2]
+
+    # @_('')
+    # def empty11(self, p):
+    #     return p[-4]   
+
     @_('ID "=" expr')
     def assignment(self, p):
         if p.ID not in self.map[self.env]:
@@ -198,18 +216,18 @@ class CalcParser(Parser):
             self.map[self.env][p.ID] = idNode
         else:
             raise SystemExit(f'Variable <{p.ID}> already defined!')
-        
+
     @_('ID')
     def assignment(self, p):
         if p.ID not in self.map[self.env]:
             self.map[self.env][p.ID] = IdNode(p.ID, 0, self.env)
         else:
             raise SystemExit(f'Variable <{p.ID}> already defined!')
-        
+
     @_('exprNOT exprP')
     def expr(self, p):
         return p.exprP
-
+    
     @_('OR exprNOT empty1 exprP')
     def exprP(self, p):
         return p.exprP
@@ -328,7 +346,6 @@ class CalcParser(Parser):
         # return p[-3] // p[-1]
         return OperationNode('/', p[-3], p[-1])
         
-
     @_('NUM')
     def fact(self, p):
         return NumNode(p.NUM)
@@ -336,7 +353,7 @@ class CalcParser(Parser):
 
     @_('ID')
     def fact(self, p):
-        return IdNode(p.ID)
+        return self.map[self.env][p.ID]
         # return self.map[p.ID]
 
     @_('"-" fact')
