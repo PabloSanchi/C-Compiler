@@ -15,7 +15,6 @@ class CalcLexer(Lexer):
     ID['%d'] = PERC_D 
     ID['scanf'] = SCANF
     
-    
     EQ = r'=='
     LEQ = r'<='
     GEQ = r'>='
@@ -31,6 +30,7 @@ class CalcLexer(Lexer):
     @_(r'\n+')
     def newline(self, t):
         self.lineno += t.value.count('\n')
+    
     def error(self, t):
         print("Illegal character '%s'" % t.value[0])
         self.index += 1
@@ -122,7 +122,7 @@ class CalcParser(Parser):
 
     @_('fun_type ID "(" params ")" emptyEnv "{" definition "}"')
     def function(self, p):
-        # TODO nodo_funcion
+        # TODO function node
         self.env = 'global' # restore environment
         
     @_('')
