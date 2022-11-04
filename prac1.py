@@ -1,40 +1,11 @@
 import os
-from sly import Lexer, Parser
+from sly import Parser
+from lexer import CalcLexer
 
-class CalcLexer(Lexer):
-    tokens = {STRING, PRINTF, PERC_D, SCANF, VOID, INT, ID, NUM, EQ, LEQ, GEQ, NEQ, OR, AND}
-    literals = {'=', '!', '<', '>', '(', ')', ';', '+', '-', '*', '/', ',', '{', '}'}
-    
-    ignore = ' \t'
-
-    STRING = r'".*"'
-    ID = r'[a-zA-Z_][a-zA-Z0-9_]*'
-    ID['int'] = INT
-    ID['void'] = VOID
-    ID['printf'] = PRINTF 
-    ID['%d'] = PERC_D 
-    ID['scanf'] = SCANF
-    
-    EQ = r'=='
-    LEQ = r'<='
-    GEQ = r'>='
-    NEQ = r'!='
-    OR = r'\|\|'
-    AND = r'&&'
-    
-    @_(r'\d+')
-    def NUM(self, t):
-        t.value = int(t.value)
-        return t
-
-    @_(r'\n+')
-    def newline(self, t):
-        self.lineno += t.value.count('\n')
-    
-    def error(self, t):
-        print("Illegal character '%s'" % t.value[0])
-        self.index += 1
-        contador = -1
+def CToAssembly(string):
+    # print("NUEVO NODO")
+    with open('output.s', 'a') as file:
+        file.write(string)
 
 '''
 
@@ -109,9 +80,10 @@ class CalcParser(Parser):
     def __init__(self):
         self.map = {'global': {}}
         self.env = 'global'
+        self.localVar = -4
     
     def printMap(self):
-        # print(self.map)
+        print(self.map)
         for key, val in self.map.items():
             print(f'-> Environment {key}')
             
@@ -119,14 +91,20 @@ class CalcParser(Parser):
                 print(f'{key1} = {val2.get()}, env = {val2.env}')
                 
             print('--------')
+        
+    
+            
 
     @_('fun_type ID "(" params ")" emptyEnv "{" definition "}"')
     def function(self, p):
         # TODO function node
+        # store the current localvar value in the function node
         self.env = 'global' # restore environment
+        self.localVar = -4 # restore localVar value
         
     @_('')
     def emptyEnv(self, p):
+        # create environment for the function
         self.map[p[-4]] = {}
         self.env = p[-4]
     
@@ -187,40 +165,28 @@ class CalcParser(Parser):
     @_('assignment assignments')
     def list(self, p):
        pass # return p[-2]
-        
-    # @_('')
-    # def empty8(self, p):
-    #     return p[-1]
-    
-    # @_('')
-    # def empty9(self, p):
-    #     return p[-3]
     
     # @_('"," empty10 assignment empty11 assignments', '')
     @_('"," assignment assignments', '')
     def assignments(self, p):
         pass # return
 
-    # @_('')
-    # def empty10(self, p):
-    #     return p[-2]
-
-    # @_('')
-    # def empty11(self, p):
-    #     return p[-4]   
-
+    # variable declaration with assignment
     @_('ID "=" expr')
     def assignment(self, p):
         if p.ID not in self.map[self.env]:
-            idNode = IdNode(p.ID, p.expr, self.env)
+            idNode = IdNode(p.ID, p.expr, self.localVar, self.env)
             self.map[self.env][p.ID] = idNode
+            self.localVar -= -4 # increment var count
         else:
             raise SystemExit(f'Variable <{p.ID}> already defined!')
 
+    # variable declaration without assignment, default value 0
     @_('ID')
     def assignment(self, p):
         if p.ID not in self.map[self.env]:
-            self.map[self.env][p.ID] = IdNode(p.ID, 0, self.env)
+            self.map[self.env][p.ID] = IdNode(p.ID, 0, self.localVar, self.env)
+            self.localVar -= -4 # increment var count
         else:
             raise SystemExit(f'Variable <{p.ID}> already defined!')
 
@@ -313,12 +279,13 @@ class CalcParser(Parser):
     @_('')
     def empty4(self, p):
         # return p[-3] + p[-1]
-        return OperationNode('+', p[-3], p[-1])
+        OperationNode('+', p[-3], p[-1])
+        op.write()
     
     @_('')
     def empty5(self, p):
         # return p[-3] - p[-1]
-        return OperationNode('-', p[-3], p[-1])
+        OperationNode('-', p[-3], p[-1])
     
     @_('fact prodP')
     def prod(self, p):
@@ -389,18 +356,70 @@ class CalcParser(Parser):
     def fun_params(self, p):
         pass
 
+
+class FunctionNode:
+    def __init__(self, type, name, params):
+        pass
+    
+    def setPrologue(self):
+        pass
+        # a = f'.text\n.globl {self.name}\n.type {self.name}, @function\n{self.name}:\n\n'
+        # b = f'\tpushl %ebp\n\tmovl %esp, %ebp\n'
+        # c = f'\tsubl ${self.params}\n' if self.params > 0 else '\n'
+
+        # prologue = a + b + c
+        
+    def setEpilogue(self):
+        epilogue = f'\tmovl %ebp, %esp\n\tpop %ebp\n\tret\n'
+        pass
+        
 class OperationNode:
     def __init__(self, operator, param1, param2):
         self.operator = operator
         self.param1 = param1
         self.param2 = param2
+        self.write()
         
     def get(self):
- 
         return eval(f'int(self.param1.get() {self.operator} self.param2.get())')
+    
         
     def write(self):
-        return f'{self.param1.write()} {self.operator} {self.param2.write()}'
+        string = ''
+        if isinstance(self.param2, IdNode):
+            string = '\tmovl ' + self.param2.write() + ', %ebx\n'
+            p2str = '%ebx'
+        elif isinstance(self.param2, NumNode): # if it is a number store get its content
+            p2str = "$" + self.param2.write()
+        else:
+            string = '\tpopl %ebx\n'
+            p2str = '%ebx'
+
+        if isinstance(self.param1, IdNode):
+            string+= f'\tmovl {self.param1.write()}, %eax\n'
+        elif isinstance(self.param1, NumNode):
+            string += '\tmovl $' + str(self.param1.write()) + ', %eax\n'
+        else:
+            string += '\tpopl %eax\n'
+
+        if self.operator == '+':
+            string +='\taddl ' + p2str + ', %eax\n'
+            string +='\tpushl %eax\n'
+        elif self.operator == '-':
+            string +='\tsubl ' + p2str + ', %eax\n'
+            string +='\tpushl %eax\n'
+        elif self.operator == '*':
+            string +='\timull ' + p2str + ', %eax\n'
+            string +='\tpushl %eax\n'
+        elif self.operator == '/':
+            string +='\tcdq\n'
+            string +='\tidivl ' + p2str + '\n'
+            string +='\tpushl %eax\n'
+            
+
+        CToAssembly(string)
+        return string
+            
 class UniqueNode:
     def __init__(self, operator, param):   
         self.param = param
@@ -410,22 +429,20 @@ class UniqueNode:
 
     def write(self):
         return f'{self.operator} {self.param.write()}'    
-class FunctionNode:
-    def __init__(self, name, returnType, numParam):
-        self.name = name
-        self.returnType = returnType
-        self.numParam = numParam
 
 class IdNode:
-    def __init__(self, id, val, env = None):
+    def __init__(self, id, val, pos, env = None):
         self.id = id
         self.val = val
         self.env = env
+        self.pos = pos
+        
     def get(self):
         return self.val.get()
         
-    def write(self, p):
-        return f'{self.id}, {self.val}, {self.env}'
+    def write(self):
+        return f'{self.pos}(%ebp)'
+        #return f'{self.id}, {self.val}, {self.env}'
     
 class NumNode:
     def __init__(self, num):
@@ -437,7 +454,13 @@ class NumNode:
     def write(self):
         return f'{self.num}'
 
+
+
 if __name__ == '__main__':
+    
+    with open('output.s', 'w') as file:
+        file.write('')
+        
     lexer = CalcLexer()
     parser = CalcParser()
 
@@ -456,10 +479,6 @@ if __name__ == '__main__':
 
         except EOFError:
             break
-        
-#         text = '''int main(void) { int a = 2, c = 3; } 
-# int foo(void) { int a = 3, c = 4; } 
-#         '''
 
         if text:
             tokenList = lexer.tokenize(text)
