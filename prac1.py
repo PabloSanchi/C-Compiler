@@ -75,12 +75,15 @@ fact -> ID {fact.s = ID.lexval}
 '''
 class CalcParser(Parser):
     tokens = CalcLexer.tokens
-    debugfile = 'parser.txt'
+    # debugfile = 'parser.txt'
     
     def __init__(self):
+        self.foo = {}
         self.map = {'global': {}}
         self.env = 'global'
         self.localVar = -4
+        self.numParam = 0
+        self.checkParam = 0
     
     def printMap(self):
         print(self.map)
@@ -92,13 +95,17 @@ class CalcParser(Parser):
                 
             print('--------')
         
-    
-            
-
     @_('fun_type ID "(" params ")" emptyEnv "{" definition "}"')
     def function(self, p):
         # TODO function node
         # store the current localvar value in the function node
+        self.foo[self.env].setLocalParams(abs(self.localVar/4))
+        
+        
+        # write epilogue
+        CToAssembly(self.foo[self.env].getEpilogue())
+        
+        # restore values
         self.env = 'global' # restore environment
         self.localVar = -4 # restore localVar value
         
@@ -107,18 +114,26 @@ class CalcParser(Parser):
         # create environment for the function
         self.map[p[-4]] = {}
         self.env = p[-4]
+        # create function node
+        self.foo[p[-4]] = FunctionNode(p[-5], p[-4], self.numParam)
+        
+        # write prologue
+        CToAssembly(self.foo[p[-4]].getPrologue())
+        
+        
     
     @_('INT ID parameters')
     def params(self, p):
-        pass
-    
+        self.numParam = 1
+        
+    # e.g. int name() || int name(void)
     @_('', 'VOID')
     def params(self, p):
-        pass
+        self.numParam = 0
     
     @_('"," INT ID parameters')
     def parameters(self, p):
-        pass
+        self.numParam += 1
 
     @_('')
     def parameters(self, p):
@@ -130,21 +145,58 @@ class CalcParser(Parser):
 
     @_('declare ";" definition', 
        'assign ";" definition', 
-       'PRINTF "(" content values ")" ";" definition', '')
+        '')
     def definition(self, p):
         pass
+
+    @_('RETURN expr ";" definition')
+    def definition(self, p):
+        if self.foo[self.env].type == 'void':
+            raise SystemExit(f'void function \'{self.env}\' should not return a value ')        # 
+        CToAssembly(f'\tpopl %eax\n')
     
+
+    @_('PRINTF "(" content values ")" ";" definition')
+    def definition(self, p):
+        given = p.content
+        needed = p.values
+        if given > needed:
+            raise SystemExit(f' more \'%\' conversions than data arguments')
+        elif given < needed:
+            raise SystemExit(f' less \'%\' conversions than data arguments')
+
+    @_('SCANF "(" content mem_values ")" ";" definition')
+    def definition(self, p):
+        given = p.content
+        needed = p.mem_values
+        if given > needed:
+            raise SystemExit(f' more \'%\' conversions than data arguments')
+        elif given < needed:
+            raise SystemExit(f' less \'%\' conversions than data arguments')
+
     @_('STRING')
     def content(self, p):
-        pass
+        return p.STRING.count('%d')
     
-    @_(', ID values')
+    @_('"," "&" ID mem_values')
+    def mem_values(self, p):
+        if p.ID not in self.map[self.env]:
+            raise SystemExit(f'Variable \'{p.ID}\' not defined')
+        return 1 + p.mem_values
+
+    @_('')
+    def mem_values(self, p):
+        return 0
+    
+    @_('"," ID values')
     def values(self, p):
-        pass
+        if p.ID not in self.map[self.env]:
+            raise SystemExit(f'Variable \'{p.ID}\' not defined')
+        return 1 + p.values
     
     @_('')
     def values(self, p):
-        pass
+        return 0
     
     @_('ID "=" expr')
     def assign(self, p):
@@ -178,6 +230,7 @@ class CalcParser(Parser):
             idNode = IdNode(p.ID, p.expr, self.localVar, self.env)
             self.map[self.env][p.ID] = idNode
             self.localVar -= -4 # increment var count
+            CToAssembly(f'\tsubl $4, %esp\n\tpopl %eax\n\tmovl %eax, {idNode.pos}(%ebp)\n')
         else:
             raise SystemExit(f'Variable <{p.ID}> already defined!')
 
@@ -187,6 +240,8 @@ class CalcParser(Parser):
         if p.ID not in self.map[self.env]:
             self.map[self.env][p.ID] = IdNode(p.ID, 0, self.localVar, self.env)
             self.localVar -= -4 # increment var count
+            
+            CToAssembly(f'\tsubl $4, %esp\n')
         else:
             raise SystemExit(f'Variable <{p.ID}> already defined!')
 
@@ -280,7 +335,6 @@ class CalcParser(Parser):
     def empty4(self, p):
         # return p[-3] + p[-1]
         OperationNode('+', p[-3], p[-1])
-        op.write()
     
     @_('')
     def empty5(self, p):
@@ -336,21 +390,29 @@ class CalcParser(Parser):
     def fact(self, p):
         return p.call
 
-    @_('ID "(" fun_param fun_params ")"')
-    def call(self, p):
-        pass
 
-    @_('expr')
+
+    @_('ID "(" fun_param ")"')
+    def call(self, p):
+        if p.ID not in self.foo:
+            raise SystemExit(f'Function <{p.ID}> not defined')
+        
+        if self.checkParam < self.foo[p.ID].params:
+            raise SystemError(f'too few arguments to function {p.ID}')
+        elif self.checkParam > self.foo[p.ID].params:
+            raise SystemError(f'too many arguments to function {p.ID}')
+
+    @_('expr fun_params')
     def fun_param(self, p):
-        pass
+        self.checkParam = 1
 
     @_('')
     def fun_param(self, p):
-        pass
+        self.checkParam = 0
 
-    @_(', expr fun_params')
+    @_('"," expr fun_params')
     def fun_params(self, p):
-        pass
+        self.checkParam += 1
 
     @_('')
     def fun_params(self, p):
@@ -358,20 +420,24 @@ class CalcParser(Parser):
 
 
 class FunctionNode:
-    def __init__(self, type, name, params):
-        pass
-    
-    def setPrologue(self):
-        pass
-        # a = f'.text\n.globl {self.name}\n.type {self.name}, @function\n{self.name}:\n\n'
-        # b = f'\tpushl %ebp\n\tmovl %esp, %ebp\n'
-        # c = f'\tsubl ${self.params}\n' if self.params > 0 else '\n'
-
-        # prologue = a + b + c
+    def __init__(self, type, name, params, localParams = 0):
+        self.type = type
+        self.name = name
+        self.params = params
+        self.localParams = localParams
         
-    def setEpilogue(self):
-        epilogue = f'\tmovl %ebp, %esp\n\tpop %ebp\n\tret\n'
-        pass
+    def setLocalParams(self, params):
+        self.localParams = params
+        
+    def getPrologue(self):
+        a = f'.text\n.globl {self.name}\n.type {self.name}, @function\n{self.name}:\n\n'
+        b = f'\tpushl %ebp\n\tmovl %esp, %ebp\n'
+        # c = f'\tsubl ${self.localParams}, %esp\n' # if self.localParams > 0 else '\n'
+        return a + b 
+        
+        
+    def getEpilogue(self):
+        return f'\tmovl %ebp, %esp\n\tpop %ebp\n\tret\n\n\n'
         
 class OperationNode:
     def __init__(self, operator, param1, param2):
@@ -483,3 +549,4 @@ if __name__ == '__main__':
         if text:
             tokenList = lexer.tokenize(text)
             parser.parse(tokenList)
+            
