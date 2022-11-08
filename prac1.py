@@ -7,72 +7,6 @@ def CToAssembly(string):
     with open('output.s', 'a') as file:
         file.write(string)
 
-'''
-
-starter -> funcion
-        | definicion
-funcion -> fun_type ID(params) {}
-params -> INT ID parametros
-        | epsilon
-parametros -> , INT ID parametros
-            | epsilon
-
-fun_type -> VOID
-          -> type
-definicion -> variable ; definicion
-          | call ; definicion
-          | assignment ; definicion
-          | epsilon
-
-call -> ID(args)
-args -> assign resto
-    | epsilon
-resto -> , assign resto
-    | epsilon
-    
-variable -> tipo {list.h = tipo.s} list
-
-list -> {assignment.h = list.h} assignment {assignments.h = assignment.h} assignments
-assignments -> , {assignment.h = assignments.h} assignment {assignments1.h = assignment.h} assignments1
-            | epsilon
-            
-assignment -> ID '=' expr {map[ID.lexval] = expr.s}
-
-expr
-
-expr -> exprNOT {exprORP.h = expr.s} exprP {expr.s = exprP.s}
-exprP -> OR exrpNOT {exprP1.h = exprP.h || exrpNOT.s } exprP {exprP.s = exprP1.s}
-exprP -> AND exrpNOT {exprP1.h = exprP.h && exprNOT.s} exprP {exprP.s = exprP1.s}
-      | epsilon {exprP.s = exprP.h}
-            
-exprNOT -> NOT exprNOT {exprNOT.s = not exprNOT}
-     | comp {exprNOT.s = comp.s}
- 
-    
-comp -> sum {compP.h = sum.s} compP {comp.s == compP.s}
-compP -> '==' sum {compP.s = compP.h == sum.s}
-      | '!=' sum  {compP.s = compP.h != sum.s}
-      | '<=' sum  {compP.s = compP.h <= sum.s}
-      | '>=' sum  {compP.s = compP.h >= sum.s}
-      | '<' sum   {compP.s = compP.h < sum.s}
-      | '>' sum   {compP.s = compP.h > sum.s}
-      | epsilon   {compP.s = compP.h}
-      
-
-sum -> prod {sumP.h = prod.s} sumP {sum.s = sumP.s}
-sumP -> '+' prod {sumP1.h = sumP.h + prod.s} sumP {sumP.s = sumP1.s}
-     |  '-' prod {sumP1.h = sumP.h - prod.s} sumP {sumP.s = sumP1.s}
-     |  epsilon {sumP.s = sumP.h}
-
-prod -> fact {prod.h = fact.s} prodP {prod.s = prodP.s}
-prodP -> '*' fact {prodP1.h = prodP.h * fact.s} prodP {prodP.s = prodP1.s}
-      |  '/' fact {prodP1.h = prodP.h / fact.s} prodP {prodP.s = prodP1.s}
-      | epsilon {prodP.s = prodP.h}
-
-fact -> ID {fact.s = ID.lexval}
-     | NUM {fact.s = NUM.lexval}
-     | '(' expr ')' {fact.s = expr.s}
-'''
 class CalcParser(Parser):
     tokens = CalcLexer.tokens
     # debugfile = 'parser.txt'
@@ -155,6 +89,13 @@ class CalcParser(Parser):
             raise SystemExit(f'void function \'{self.env}\' should not return a value ')        # 
         CToAssembly(f'\tpopl %eax\n')
     
+    # @_('RETURN ID ";" definition')
+    # def definition(self, p):
+    #     CToAssembly(f'\tmovl {self.map[self.env][p.ID].pos}(%ebp), %eax\n')
+        
+    # @_('RETURN NUM ";" definition')
+    # def definition(self, p):
+    #     CToAssembly(f'\tmovl ${p.NUM}, %eax\n')
 
     @_('PRINTF "(" content values ")" ";" definition')
     def definition(self, p):
@@ -448,8 +389,7 @@ class OperationNode:
         
     def get(self):
         return eval(f'int(self.param1.get() {self.operator} self.param2.get())')
-    
-        
+      
     def write(self):
         string = ''
         if isinstance(self.param2, IdNode):
@@ -521,32 +461,42 @@ class NumNode:
         return f'{self.num}'
 
 
-
-if __name__ == '__main__':
-    
+def main(text):
     with open('output.s', 'w') as file:
         file.write('')
-        
+
     lexer = CalcLexer()
     parser = CalcParser()
+    
+    tokenList = lexer.tokenize(text)
+    parser.parse(tokenList)
 
-    while True:
-        try:
-            text = input('> ')
-            if text == 'clear':
-                os.system('clear')
-                continue
-            if text == 'exit':
-                break
+    
+# if __name__ == '__main__':
+    
+#     with open('output.s', 'w') as file:
+#         file.write('')
+        
+#     lexer = CalcLexer()
+#     parser = CalcParser()
+
+#     while True:
+#         try:
+#             text = input('> ')
+#             if text == 'clear':
+#                 os.system('clear')
+#                 continue
+#             if text == 'exit':
+#                 break
             
-            if text == 'print':
-                parser.printMap()
-                continue
+#             if text == 'print':
+#                 parser.printMap()
+#                 continue
 
-        except EOFError:
-            break
+#         except EOFError:
+#             break
 
-        if text:
-            tokenList = lexer.tokenize(text)
-            parser.parse(tokenList)
+#         if text:
+#             tokenList = lexer.tokenize(text)
+#             parser.parse(tokenList)
             

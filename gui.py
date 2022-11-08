@@ -1,5 +1,5 @@
 import streamlit as st
-
+from prac1 import main
 from streamlit_ace import st_ace
 
 # Spawn a new Ace editor
@@ -32,7 +32,8 @@ if choice == 'Online Editor':
                 st.download_button(label='Download .C', data=content,file_name=f'{filename}.c')
     
     if st.button('Run'):
-        st.write('running...')
+        main(content)
+        st.write('Finished')
         
      
 if choice == 'Pick a file':
