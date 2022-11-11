@@ -227,7 +227,7 @@ class CalcParser(Parser):
     
     @_('EQ sum empty3')
     def compP(self, p):
-        return OperationNode('==', p.empty3, p.sum)#int(p.empty3 == p.sum)
+        return OperationNode('==', p.empty3, p.sum) #int(p.empty3 == p.sum)
 
     @_('NEQ sum empty3')
     def compP(self, p):

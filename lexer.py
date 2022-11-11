@@ -2,8 +2,8 @@ import os
 from sly import Lexer, Parser
 
 class CalcLexer(Lexer):
-    tokens = {STRING, PRINTF, PERC_D, SCANF, VOID, INT, ID, NUM, EQ, LEQ, GEQ, NEQ, OR, AND}
-    literals = {'=', '!', '<', '>', '(', ')', ';', '+', '-', '*', '/', ',', '{', '}'}
+    tokens = {RETURN, STRING, PRINTF, SCANF, VOID, INT, ID, NUM, EQ, LEQ, GEQ, NEQ, OR, AND}
+    literals = {'&', '=', '!', '<', '>', '(', ')', ';', '+', '-', '*', '/', ',', '{', '}'}
     
     ignore = ' \t'
 
@@ -12,8 +12,8 @@ class CalcLexer(Lexer):
     ID['int'] = INT
     ID['void'] = VOID
     ID['printf'] = PRINTF 
-    ID['%d'] = PERC_D 
     ID['scanf'] = SCANF
+    ID['return'] = RETURN
     
     EQ = r'=='
     LEQ = r'<='
