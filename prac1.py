@@ -28,13 +28,26 @@ class CalcParser(Parser):
                 print(f'{key1} = {val2.get()}, env = {val2.env}')
                 
             print('--------')
-        
+            
+    # @_('VOID ID function')
+    # def id_global(self, p):
+    #     pass
+    
+    # @_('INT ID aux')
+    # def id_global(self, p):
+    #     pass
+    # @_('function')
+    # def aux(self, p):
+    #     pass
+    # @_('', 'dim list')
+    # def aux(self, p):
+    #     pass
+    
     @_('fun_type ID "(" params ")" emptyEnv "{" definition "}"')
     def function(self, p):
         # TODO function node
         # store the current localvar value in the function node
         self.foo[self.env].setLocalParams(abs(self.localVar/4))
-        
         
         # write epilogue
         CToAssembly(self.foo[self.env].getEpilogue())
@@ -83,20 +96,24 @@ class CalcParser(Parser):
     def definition(self, p):
         pass
 
-    @_('RETURN expr ";" definition')
+    @_('RETURN expr ";"')
     def definition(self, p):
         if self.foo[self.env].type == 'void':
             raise SystemExit(f'void function \'{self.env}\' should not return a value ')        # 
-        CToAssembly(f'\tpopl %eax\n')
-    
-    # @_('RETURN ID ";" definition')
-    # def definition(self, p):
-    #     CToAssembly(f'\tmovl {self.map[self.env][p.ID].pos}(%ebp), %eax\n')
         
-    # @_('RETURN NUM ";" definition')
-    # def definition(self, p):
-    #     CToAssembly(f'\tmovl ${p.NUM}, %eax\n')
-
+        exp = p.expr
+        
+        if isinstance(exp, IdNode):
+            if exp.env == 'global':
+                CToAssembly(f'\tmovl {exp.id}, %eax\n')
+            else:
+                CToAssembly(f'\tmovl {exp.pos}(%ebp), %eax\n')
+                
+        elif isinstance(exp, NumNode):
+            CToAssembly(f'\tmovl ${exp.get()}, %eax\n')
+        else:
+            CToAssembly(f'\tpopl %eax\n')
+    
     @_('PRINTF "(" content values ")" ";" definition')
     def definition(self, p):
         given = p.content
@@ -200,12 +217,10 @@ class CalcParser(Parser):
 
     @_('')
     def empty1(self, p):
-        # return int(p[-3] or p[-1])
         return OperationNode('or', p[-3], p[-1])
 
     @_('')
     def empty2(self, p):
-        # return int(p[-3] and p[-1])
         return OperationNode('and', p[-3], p[-1])
 
     @_('')
@@ -214,114 +229,99 @@ class CalcParser(Parser):
     
     @_('"!" exprNOT')
     def exprNOT(self, p):
-        # return int(not p.exprNOT)
         return OperationNode('not', p.exprNOT)
 
     @_('comp')
     def exprNOT(self, p):
         return p.comp 
     
-    @_('sum compP')
+    @_('comp EQ sum')
     def comp(self, p):
-        return p.compP
+        return OperationNode('==', p.comp, p.sum)
     
-    @_('EQ sum empty3')
-    def compP(self, p):
-        return OperationNode('==', p.empty3, p.sum) #int(p.empty3 == p.sum)
-
-    @_('NEQ sum empty3')
-    def compP(self, p):
-        return OperationNode('!=', p.empty3, p.sum)
+    @_('comp NEQ sum')
+    def comp(self, p):
+        return OperationNode('!=', p.comp, p.sum)
     
-    @_('LEQ sum empty3')
-    def compP(self, p):
-        return OperationNode('<=', p.empty3, p.sum)
-    @_('GEQ sum empty3')
-    def compP(self, p):
+    @_('comp GEQ sum')
+    def comp(self, p):
         return OperationNode('>=', p.empty3, p.sum)
     
-    @_('"<" sum empty3')
-    def compP(self, p):
-        return OperationNode('<', p.empty3, p.sum)
+    @_('comp LEQ sum')
+    def comp(self, p):
+        return OperationNode('<=', p.comp, p.sum)
     
-    @_('">" sum empty3')
-    def compP(self, p):
-        return OperationNode('>', p.empty3, p.sum)
+    @_('comp ">" sum')
+    def comp(self, p):
+        return OperationNode('>', p.comp, p.sum)
+    
+    @_('comp "<" sum')
+    def comp(self, p):
+        return OperationNode('<', p.comp, p.sum)
+    
+    @_('sum')
+    def comp(self, p):
+        return p.sum
+    
+    # right grammar
+    # @_('EQ sum empty3')
+    # def compP(self, p):
+    #     return OperationNode('==', p.empty3, p.sum) #int(p.empty3 == p.sum)
 
-    @_('')
-    def compP(self, p):
-        return p[-1]
+    # @_('NEQ sum empty3')
+    # def compP(self, p):
+    #     return OperationNode('!=', p.empty3, p.sum)
+    
+    # @_('LEQ sum empty3')
+    # def compP(self, p):
+    #     return OperationNode('<=', p.empty3, p.sum)
+    # @_('GEQ sum empty3')
+    # def compP(self, p):
+    #     return OperationNode('>=', p.empty3, p.sum)
+    
+    # @_('"<" sum empty3')
+    # def compP(self, p):
+    #     return OperationNode('<', p.empty3, p.sum)
+    
+    # @_('">" sum empty3')
+    # def compP(self, p):
+    #     return OperationNode('>', p.empty3, p.sum)
 
-    @_('')
-    def empty3(self, p):
-        return p[-3]
+    # @_('')
+    # def compP(self, p):
+    #     return p[-1]
 
-    @_('prod sumP')
+    # @_('')
+    # def empty3(self, p):
+    #     return p[-3]
+
+    @_('sum "+" prod', 'sum "-" prod')
     def sum(self, p):
-        return p.sumP
-
-    @_('"+" prod empty4 sumP')
-    def sumP(self, p):
-        return p.sumP
-        
-    @_('"-" prod empty5 sumP')
-    def sumP(self, p):
-        return p.sumP
-
-    @_('')
-    def sumP(self, p):
-        return p[-1]
-
-    @_('')
-    def empty4(self, p):
-        # return p[-3] + p[-1]
-        OperationNode('+', p[-3], p[-1])
+        OperationNode(p[1], p.sum, p.prod)
     
-    @_('')
-    def empty5(self, p):
-        # return p[-3] - p[-1]
-        OperationNode('-', p[-3], p[-1])
+    @_('prod')
+    def sum(self, p):
+        return p.prod
     
-    @_('fact prodP')
+    @_('prod "*" fact', 'prod "/" fact')
     def prod(self, p):
-        return p.prodP
-
-    @_('"*" fact empty6 prodP')
-    def prodP(self, p):
-        return p.prodP
-
-    @_('"/" fact empty7 prodP')
-    def prodP(self, p):
-        return p.prodP
-
-    @_('')
-    def prodP(self, p):
-        return p[-1]
+        OperationNode(p[1], p.prod, p.fact)
         
-    @_('')    
-    def empty6(self, p):
-        # return p[-3] * p[-1]
-        return OperationNode('*', p[-3], p[-1])
-
-    @_('')    
-    def empty7(self, p):
-        # return p[-3] // p[-1]
-        return OperationNode('/', p[-3], p[-1])
-        
+    @_('fact')
+    def prod(self, p):
+        return p.fact
+     
     @_('NUM')
     def fact(self, p):
         return NumNode(p.NUM)
-        # return p.NUM
 
     @_('ID')
     def fact(self, p):
         return self.map[self.env][p.ID]
-        # return self.map[p.ID]
 
     @_('"-" fact')
     def fact(self, p):
         return UniqueNode('-', p.fact.get())
-        # return -1 * p.fact
        
     @_('"(" expr ")"')
     def fact(self, p):
@@ -330,7 +330,6 @@ class CalcParser(Parser):
     @_('call')
     def fact(self, p):
         return p.call
-
 
 
     @_('ID "(" fun_param ")"')
@@ -472,31 +471,31 @@ def main(text):
     parser.parse(tokenList)
 
     
-# if __name__ == '__main__':
+if __name__ == '__main__':
     
-#     with open('output.s', 'w') as file:
-#         file.write('')
+    with open('output.s', 'w') as file:
+        file.write('')
         
-#     lexer = CalcLexer()
-#     parser = CalcParser()
+    lexer = CalcLexer()
+    parser = CalcParser()
 
-#     while True:
-#         try:
-#             text = input('> ')
-#             if text == 'clear':
-#                 os.system('clear')
-#                 continue
-#             if text == 'exit':
-#                 break
+    while True:
+        try:
+            text = input('> ')
+            if text == 'clear':
+                os.system('clear')
+                continue
+            if text == 'exit':
+                break
             
-#             if text == 'print':
-#                 parser.printMap()
-#                 continue
+            if text == 'print':
+                parser.printMap()
+                continue
 
-#         except EOFError:
-#             break
+        except EOFError:
+            break
 
-#         if text:
-#             tokenList = lexer.tokenize(text)
-#             parser.parse(tokenList)
+        if text:
+            tokenList = lexer.tokenize(text)
+            parser.parse(tokenList)
             
