@@ -235,66 +235,20 @@ class CalcParser(Parser):
     def exprNOT(self, p):
         return p.comp 
     
-    @_('comp EQ sum')
+    @_('comp EQ sum',
+       'comp NEQ sum',
+       'comp GEQ sum',
+       'comp LEQ sum',
+       'comp ">" sum',
+       'comp "<" sum')
     def comp(self, p):
-        return OperationNode('==', p.comp, p.sum)
+        return OperationNode(p[1], p.comp, p.sum)
     
-    @_('comp NEQ sum')
-    def comp(self, p):
-        return OperationNode('!=', p.comp, p.sum)
-    
-    @_('comp GEQ sum')
-    def comp(self, p):
-        return OperationNode('>=', p.empty3, p.sum)
-    
-    @_('comp LEQ sum')
-    def comp(self, p):
-        return OperationNode('<=', p.comp, p.sum)
-    
-    @_('comp ">" sum')
-    def comp(self, p):
-        return OperationNode('>', p.comp, p.sum)
-    
-    @_('comp "<" sum')
-    def comp(self, p):
-        return OperationNode('<', p.comp, p.sum)
     
     @_('sum')
     def comp(self, p):
         return p.sum
     
-    # right grammar
-    # @_('EQ sum empty3')
-    # def compP(self, p):
-    #     return OperationNode('==', p.empty3, p.sum) #int(p.empty3 == p.sum)
-
-    # @_('NEQ sum empty3')
-    # def compP(self, p):
-    #     return OperationNode('!=', p.empty3, p.sum)
-    
-    # @_('LEQ sum empty3')
-    # def compP(self, p):
-    #     return OperationNode('<=', p.empty3, p.sum)
-    # @_('GEQ sum empty3')
-    # def compP(self, p):
-    #     return OperationNode('>=', p.empty3, p.sum)
-    
-    # @_('"<" sum empty3')
-    # def compP(self, p):
-    #     return OperationNode('<', p.empty3, p.sum)
-    
-    # @_('">" sum empty3')
-    # def compP(self, p):
-    #     return OperationNode('>', p.empty3, p.sum)
-
-    # @_('')
-    # def compP(self, p):
-    #     return p[-1]
-
-    # @_('')
-    # def empty3(self, p):
-    #     return p[-3]
-
     @_('sum "+" prod', 'sum "-" prod')
     def sum(self, p):
         OperationNode(p[1], p.sum, p.prod)
