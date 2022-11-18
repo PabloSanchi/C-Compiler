@@ -203,33 +203,20 @@ class CalcParser(Parser):
         else:
             raise SystemExit(f'Variable <{p.ID}> already defined!')
 
-    @_('exprNOT exprP')
+    @_('expr AND exprNOT', 'expr OR exprNOT')
     def expr(self, p):
-        return p.exprP
-    
-    @_('OR exprNOT empty1 exprP')
-    def exprP(self, p):
-        return p.exprP
-
-    @_('AND exprNOT empty2 exprP')
-    def exprP(self, p):
-        return p.exprP
-
-    @_('')
-    def empty1(self, p):
-        return OperationNode('or', p[-3], p[-1])
-
-    @_('')
-    def empty2(self, p):
-        return OperationNode('and', p[-3], p[-1])
-
-    @_('')
-    def exprP(self, p):
-        return p[-1]
+        if p[1] == '&&':
+            return OperationNode('and', p.expr, p.exprNOT)
+        else:
+            return OperationNode('or', p.expr, p.exprNOT)
+        
+    @_('exprNOT')
+    def expr(self, p):
+        return p.exprNOT
     
     @_('"!" exprNOT')
     def exprNOT(self, p):
-        return OperationNode('not', p.exprNOT)
+        return UniqueNode('not', p.exprNOT)
 
     @_('comp')
     def exprNOT(self, p):
