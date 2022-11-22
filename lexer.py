@@ -3,7 +3,7 @@ from sly import Lexer, Parser
 
 class CalcLexer(Lexer):
     tokens = {RETURN, STRING, PRINTF, SCANF, VOID, INT, ID, NUM, EQ, LEQ, GEQ, NEQ, OR, AND}
-    literals = {'&', '=', '!', '<', '>', '(', ')', ';', '+', '-', '*', '/', ',', '{', '}'}
+    literals = {'&', '=', '!', '<', '>', '(', ')', ';', '+', '-', '*', '/', ',', '{', '}', '[', ']'}
     
     ignore = ' \t'
 
