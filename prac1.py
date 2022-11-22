@@ -4,6 +4,7 @@ from lexer import CalcLexer
 
 
 instructions = []
+constants = []
 
 def CToAssembly(string, append = True):
     global instructions
@@ -41,13 +42,16 @@ class CalcParser(Parser):
                 print(f'{key1} = {val2.get()}, env = {val2.env}')
                 
             print('--------')
-            
+           
+    @_('id_global', '')
+    def line(self, p):
+        pass
     
-    @_('VOID ID function')
+    @_('VOID ID function line')
     def id_global(self, p):
         pass
     
-    @_('INT ID corpus')
+    @_('INT ID corpus line')
     def id_global(self, p):
         pass
     
@@ -77,20 +81,6 @@ class CalcParser(Parser):
         # restore values
         self.env = 'global' # restore environment
         self.localVar = -4 # restore localVar value
-        
-    
-    # @_('fun_type ID "(" params ")" emptyEnv "{" definition "}"')
-    # def function(self, p):
-    #     # TODO function node
-    #     # store the current localvar value in the function node
-    #     self.foo[self.env].setLocalParams(abs(self.localVar/4))
-        
-    #     # write epilogue
-    #     CToAssembly(self.foo[self.env].getEpilogue())
-        
-    #     # restore values
-    #     self.env = 'global' # restore environment
-    #     self.localVar = -4 # restore localVar value
         
     @_('')
     def emptyEnv(self, p):
@@ -152,36 +142,57 @@ class CalcParser(Parser):
     
     @_('PRINTF "(" content values ")" emptyScanfPrintf ";" definition')
     def definition(self, p):
-        given = p.content
+        given, string = p.content
         needed = p.values
         if given > needed:
             SysError(f' more \'%\' conversions than data arguments')
         elif given < needed:
             SysError(f' less \'%\' conversions than data arguments')
-            
+        
+        # CToAssembly(string)    
             
     @_('')
     def emptyScanfPrintf(self, p):
-        CToAssembly(f'\tcall {p[-5]}\n\taddl ${4 + p[-3]*4}, %esp\n')
+        CToAssembly(f'{p[-3][1]}\tcall {p[-5]}\n\taddl ${4 + p[-2]*4}, %esp\n')
        
     @_('SCANF "(" content mem_values ")" emptyScanfPrintf ";" definition')
     def definition(self, p):
-        given = p.content
+        given, string = p.content
         needed = p.mem_values
+        
         if given > needed:
             SysError(f' more \'%\' conversions than data arguments')
         elif given < needed:
             SysError(f' less \'%\' conversions than data arguments')
             
+        # CToAssembly(string)
+            
     @_('STRING')
     def content(self, p):
-        return p.STRING.count('%d')
+        global constants
+        if p.STRING in constants:
+            st = constants.index(p.STRING)
+        else:
+            st = len(constants)
+            constants.append(p.STRING)
+        
+        CToAssembly(f'.s{st}:\n\t.string "{p.STRING}"\n', False) # create constant (string)
+        string = f'\tpushl $s{st}\n' # push string into the stack
+        return p.STRING.count('%d'), string 
     
     @_('"," "&" ID mem_values')
     def mem_values(self, p):
-        if p.ID not in self.map[self.env]:
+        if p.ID in self.map[self.env]:
+            CToAssembly(f'\tleal {self.map[self.env][p.ID].pos}(%ebp), %eax\n\tpushl %eax\n')
+        elif p.ID in self.map['global']:
+            CToAssembly(f'\tpushl ${p.ID}\n')
+        else:
             SysError(f'Variable \'{p.ID}\' not defined')
         return 1 + p.mem_values
+
+        # if p.ID not in self.map[self.env] and p.ID not in self.map['global']:
+        #     SysError(f'Variable \'{p.ID}\' not defined')
+        # return 1 + p.mem_values
 
     @_('')
     def mem_values(self, p):
@@ -189,7 +200,14 @@ class CalcParser(Parser):
     
     @_('"," ID values')
     def values(self, p):
-        if p.ID not in self.map[self.env]:
+        # if p.ID not in self.map[self.env] and p.ID not in self.map['global']:
+        #     SysError(f'Variable \'{p.ID}\' not defined')
+        
+        if p.ID in self.map[self.env]:
+            CToAssembly(f'\tpushl {self.map[self.env][p.ID].pos}(%ebp)\n')
+        elif p.ID in self.map['global']:
+            CToAssembly(f'\tpushl {p.ID}\n')
+        else:
             SysError(f'Variable \'{p.ID}\' not defined')
         return 1 + p.values
     
@@ -199,7 +217,7 @@ class CalcParser(Parser):
     
     @_('ID "=" expr')
     def assign(self, p):
-        if p.ID not in self.map[self.env]:
+        if p.ID not in self.map[self.env] and p.ID not in self.map['global']:
             SysError(f'Variable <{p.ID}> not defined')
             
         self.map[self.env][p.ID] = p.expr
@@ -228,7 +246,7 @@ class CalcParser(Parser):
         if p.ID not in self.map[self.env]:
             idNode = IdNode(p.ID, p.expr, self.localVar, self.env)
             self.map[self.env][p.ID] = idNode
-            self.localVar -= -4 # increment var count
+            self.localVar -= 4 # increment var count
             CToAssembly(f'\tsubl $4, %esp\n\tpopl %eax\n\tmovl %eax, {idNode.pos}(%ebp)\n')
         else:
             SysError(f'Variable <{p.ID}> already defined!')
@@ -238,7 +256,7 @@ class CalcParser(Parser):
     def assignment(self, p):
         if p.ID not in self.map[self.env]:
             self.map[self.env][p.ID] = IdNode(p.ID, 0, self.localVar, self.env)
-            self.localVar -= -4 # increment var count
+            self.localVar -= 4 # increment var count
             
             CToAssembly(f'\tsubl $4, %esp\n')
         else:
@@ -468,33 +486,33 @@ def main(text):
     writeToFile()
 
     
-# if __name__ == '__main__':
+if __name__ == '__main__':
     
-#     with open('output.s', 'w') as file:
-#         file.write('')
+    with open('output.s', 'w') as file:
+        file.write('')
         
-#     lexer = CalcLexer()
-#     parser = CalcParser()
+    lexer = CalcLexer()
+    parser = CalcParser()
 
-#     while True:
-#         try:
-#             text = input('> ')
-#             if text == 'clear':
-#                 os.system('clear')
-#                 continue
-#             if text == 'exit':
-#                 break
+    while True:
+        try:
+            text = input('> ')
+            if text == 'clear':
+                os.system('clear')
+                continue
+            if text == 'exit':
+                break
             
-#             if text == 'print':
-#                 parser.printMap()
-#                 continue
+            if text == 'print':
+                parser.printMap()
+                continue
 
-#         except EOFError:
-#             break
+        except EOFError:
+            break
 
-#         if text:
-#             tokenList = lexer.tokenize(text)
-#             parser.parse(tokenList)
+        if text:
+            tokenList = lexer.tokenize(text)
+            parser.parse(tokenList)
             
-#             writeToFile()
+            writeToFile()
             
