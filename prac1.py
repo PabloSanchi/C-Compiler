@@ -21,27 +21,18 @@ def writeToFile():
         
     instructions = []
 
+# global variables
+foo = {}
 class CalcParser(Parser):
     tokens = CalcLexer.tokens
     debugfile = 'parser.txt'
     
     def __init__(self):
-        self.foo = {}
         self.map = {'global': {}}
         self.env = 'global'
         self.localVar = -4
         self.numParam = 0
         self.checkParam = 0
-    
-    def printMap(self):
-        print(self.map)
-        for key, val in self.map.items():
-            print(f'-> Environment {key}')
-            
-            for key1, val2 in val.items():
-                print(f'{key1} = {val2.get()}, env = {val2.env}')
-                
-            print('--------')
            
     @_('id_global', '')
     def line(self, p):
@@ -67,16 +58,15 @@ class CalcParser(Parser):
     def empty1(self, p):
         pass # create node id
         
-        
-
     @_('"(" params ")" emptyEnv "{" definition "}"')
     def function(self, p):
+        global foo
         # TODO function node
         # store the current localvar value in the function node
-        self.foo[self.env].setLocalParams(abs(self.localVar/4))
+        foo[self.env].setLocalParams(abs(self.localVar/4))
         
         # write epilogue
-        CToAssembly(self.foo[self.env].getEpilogue())
+        CToAssembly(foo[self.env].getEpilogue())
         
         # restore values
         self.env = 'global' # restore environment
@@ -84,17 +74,20 @@ class CalcParser(Parser):
         
     @_('')
     def emptyEnv(self, p):
+        global foo
         # create environment for the function
         self.map[p[-4]] = {}
         self.env = p[-4]
         # create function node
-        self.foo[p[-4]] = FunctionNode(p[-5], p[-4], self.numParam)
+        foo[p[-4]] = FunctionNode(p[-5], p[-4], self.numParam)
         
         # write prologue
-        CToAssembly(self.foo[p[-4]].getPrologue())
-        
-        
+        CToAssembly(foo[p[-4]].getPrologue())
     
+    
+    # elm -> ID DIM | pointer
+    # DIM -> eps | dim2
+    # pointer-> * pointer
     @_('INT ID parameters')
     def params(self, p):
         self.numParam = 1
@@ -112,10 +105,6 @@ class CalcParser(Parser):
     def parameters(self, p):
         pass
     
-    @_('INT', 'VOID') 
-    def fun_type(self, p):
-        p[0]
-
     @_('declare ";" definition', 
        'assign ";" definition', 
         '')
@@ -124,49 +113,25 @@ class CalcParser(Parser):
 
     @_('RETURN expr ";"')
     def definition(self, p):
-        if self.foo[self.env].type == 'void':
+        global foo
+        if foo[self.env].type == 'void':
             SysError(f'void function \'{self.env}\' should not return a value ')        # 
         
         exp = p.expr
-        
-        if isinstance(exp, IdNode):
-            if exp.env == 'global':
-                CToAssembly(f'\tmovl {exp.id}, %eax\n')
-            else:
-                CToAssembly(f'\tmovl {exp.pos}(%ebp), %eax\n')
-                
-        elif isinstance(exp, NumNode):
-            CToAssembly(f'\tmovl ${exp.get()}, %eax\n')
-        else:
-            CToAssembly(f'\tpopl %eax\n')
+        CToAssembly(f'\tpopl %eax # RETURN\n')
     
-    @_('PRINTF "(" content values ")" emptyScanfPrintf ";" definition')
+    @_('funName "(" content values ")" emptyScanfPrintf ";" definition')
     def definition(self, p):
-        given, string = p.content
-        needed = p.values
-        if given > needed:
-            SysError(f' more \'%\' conversions than data arguments')
-        elif given < needed:
-            SysError(f' less \'%\' conversions than data arguments')
-        
-        # CToAssembly(string)    
+        pass
             
     @_('')
     def emptyScanfPrintf(self, p):
-        CToAssembly(f'{p[-3][1]}\tcall {p[-5]}\n\taddl ${4 + p[-2]*4}, %esp\n')
-       
-    @_('SCANF "(" content mem_values ")" emptyScanfPrintf ";" definition')
-    def definition(self, p):
-        given, string = p.content
-        needed = p.mem_values
+        return callNode(p[-5], [p[-3]] + p[-2])
         
-        if given > needed:
-            SysError(f' more \'%\' conversions than data arguments')
-        elif given < needed:
-            SysError(f' less \'%\' conversions than data arguments')
-            
-        # CToAssembly(string)
-            
+    @_('PRINTF', 'SCANF')
+    def funName(self, p):
+        return p[0]
+  
     @_('STRING')
     def content(self, p):
         global constants
@@ -176,51 +141,34 @@ class CalcParser(Parser):
             st = len(constants)
             constants.append(p.STRING)
         
-        CToAssembly(f'.s{st}:\n\t.string "{p.STRING}"\n', False) # create constant (string)
-        string = f'\tpushl $s{st}\n' # push string into the stack
-        return p.STRING.count('%d'), string 
-    
-    @_('"," "&" ID mem_values')
-    def mem_values(self, p):
-        if p.ID in self.map[self.env]:
-            CToAssembly(f'\tleal {self.map[self.env][p.ID].pos}(%ebp), %eax\n\tpushl %eax\n')
-        elif p.ID in self.map['global']:
-            CToAssembly(f'\tpushl ${p.ID}\n')
-        else:
-            SysError(f'Variable \'{p.ID}\' not defined')
-        return 1 + p.mem_values
-
-        # if p.ID not in self.map[self.env] and p.ID not in self.map['global']:
-        #     SysError(f'Variable \'{p.ID}\' not defined')
-        # return 1 + p.mem_values
-
-    @_('')
-    def mem_values(self, p):
-        return 0
+        CToAssembly(f'.s{st}:\n\t.string {p.STRING}\n', False) # create constant (string)
+        string = f'$s{st}'
+        return string 
     
     @_('"," ID values')
     def values(self, p):
-        # if p.ID not in self.map[self.env] and p.ID not in self.map['global']:
-        #     SysError(f'Variable \'{p.ID}\' not defined')
-        
+        l = []
         if p.ID in self.map[self.env]:
-            CToAssembly(f'\tpushl {self.map[self.env][p.ID].pos}(%ebp)\n')
+            l.append(f'{self.map[self.env][p.ID].pos}(%ebp)')
+            # CToAssembly(f'\tpushl {self.map[self.env][p.ID].pos}(%ebp)\n')
         elif p.ID in self.map['global']:
-            CToAssembly(f'\tpushl {p.ID}\n')
+            l.append(p.ID)
+            # CToAssembly(f'\tpushl {p.ID}\n')
         else:
             SysError(f'Variable \'{p.ID}\' not defined')
-        return 1 + p.values
+        return l + p.values
     
     @_('')
     def values(self, p):
-        return 0
+        return []
     
     @_('ID "=" expr')
     def assign(self, p):
         if p.ID not in self.map[self.env] and p.ID not in self.map['global']:
             SysError(f'Variable <{p.ID}> not defined')
             
-        self.map[self.env][p.ID] = p.expr
+        #self.map[self.env][p.ID] = p.expr
+        CToAssembly(f'\tpopl %eax\n\tmovl %eax, {self.map[self.env][p.ID].pos}(%ebp)\n')
         
     @_('expr')
     def assign(self, p):
@@ -244,10 +192,11 @@ class CalcParser(Parser):
     @_('ID "=" expr')
     def assignment(self, p):
         if p.ID not in self.map[self.env]:
+            
+            CToAssembly(f'\tsubl $4, %esp\n\tpopl %eax\n\tmovl %eax, {self.localVar}(%ebp)\n')
             idNode = IdNode(p.ID, p.expr, self.localVar, self.env)
             self.map[self.env][p.ID] = idNode
             self.localVar -= 4 # increment var count
-            CToAssembly(f'\tsubl $4, %esp\n\tpopl %eax\n\tmovl %eax, {idNode.pos}(%ebp)\n')
         else:
             SysError(f'Variable <{p.ID}> already defined!')
 
@@ -261,6 +210,28 @@ class CalcParser(Parser):
             CToAssembly(f'\tsubl $4, %esp\n')
         else:
             SysError(f'Variable <{p.ID}> already defined!')
+
+    @_('pointer')
+    def assignment(self, p):
+        if p.ID not in self.map[self.env]:
+            self.map[self.env][p.ID] = IdNode(p.ID, 0, self.localVar, self.env)
+            self.localVar -= 4 # increment var count
+            
+            CToAssembly(f'\tsubl $4, %esp\n')
+        else:
+            SysError(f'Variable <{p.ID}> already defined!')
+
+
+    @_('array')
+    def assignment(self, p):
+        if p.ID not in self.map[self.env]:
+            self.map[self.env][p.ID] = IdNode(p.ID, 0, self.localVar, self.env)
+            self.localVar -= 4 # increment var count
+            
+            CToAssembly(f'\tsubl $4, %esp\n')
+        else:
+            SysError(f'Variable <{p.ID}> already defined!')
+
 
     @_('expr AND exprNOT', 'expr OR exprNOT')
     def expr(self, p):
@@ -297,7 +268,7 @@ class CalcParser(Parser):
     
     @_('sum "+" prod', 'sum "-" prod')
     def sum(self, p):
-        OperationNode(p[1], p.sum, p.prod)
+        return OperationNode(p[1], p.sum, p.prod)
     
     @_('prod')
     def sum(self, p):
@@ -305,7 +276,7 @@ class CalcParser(Parser):
     
     @_('prod "*" fact', 'prod "/" fact')
     def prod(self, p):
-        OperationNode(p[1], p.prod, p.fact)
+        return OperationNode(p[1], p.prod, p.fact)
         
     @_('fact')
     def prod(self, p):
@@ -313,15 +284,23 @@ class CalcParser(Parser):
      
     @_('NUM')
     def fact(self, p):
-        return NumNode(p.NUM)
+        node = NumNode(p.NUM)
+        node.write()
+        return node
 
     @_('ID')
     def fact(self, p):
+        if p.ID in self.map[self.env]:
+            self.map[self.env][p.ID].write()
         return self.map[self.env][p.ID]
+    
+    # @_('pointer')
+    # def fact(self, p):
+    #     pass
 
     @_('"-" fact')
     def fact(self, p):
-        return UniqueNode('-', p.fact.get())
+        return UniqueNode('-', p.fact)
        
     @_('"(" expr ")"')
     def fact(self, p):
@@ -331,24 +310,29 @@ class CalcParser(Parser):
     def fact(self, p):
         return p.call
     
-    @_('"[" NUM "]" dim2', '')
-    def dim(self, p):
+    @_('array', 'pointer', 'ID')
+    def elm(self, p):
+        return p[0]
+    
+    @_('ID "[" NUM "]" dim')
+    def array(self, p):
+        num_el = p.dim * p.NUM
+        
+    @_('"*" ID')
+    def pointer(self, p):
         pass
     
-    @_('"[" NUM "]"', '')
-    def dim2(self, p):
-        pass        
-
+    @_('"[" NUM "]"')
+    def dim(self, p):
+        return p.NUM
+    
+    @_('')
+    def dim(self, p):
+        return 1   
 
     @_('ID "(" fun_param ")"')
     def call(self, p):
-        if p.ID not in self.foo:
-            SysError(f'Function <{p.ID}> not defined')
-        
-        if self.checkParam < self.foo[p.ID].params:
-            SysError(f'too few arguments to function {p.ID}')
-        elif self.checkParam > self.foo[p.ID].params:
-            SysError(f'too many arguments to function {p.ID}')
+        return callNode()
 
     @_('expr fun_params')
     def fun_param(self, p):
@@ -366,6 +350,38 @@ class CalcParser(Parser):
     def fun_params(self, p):
         pass
 
+
+class callNode:
+    def __init__(self, name, params):
+        global foo, constants
+        if name != 'printf' and name != 'scanf':
+            if name not in foo:
+                SysError(f'Function <{name}> not defined')
+            if foo[name].type == 'void':
+                SysError(f'Function <{name}> is void type')
+            if len(params) < foo[name].params:
+                SysError(f'too few arguments to function {name}')
+            elif len(params) > foo[name].params:
+                SysError(f'too many arguments to function {name}')
+        else:
+            
+            given = len(params)-1
+            needed = constants[int(params[0][2:])].count('%d')
+                     
+            if given > needed:
+                SysError(f' more \'%\' conversions than data arguments')
+            elif given < needed:
+                SysError(f' less \'%\' conversions than data arguments')
+                        
+        self.name = name
+        self.params = params
+        self.write()
+
+    def write(self):
+        
+        for param in self.params[::-1]:
+            CToAssembly(f'\tpushl {param}\n')
+        CToAssembly(f'\tcall {self.name}\n\taddl ${len(self.params)*4}, %esp\n')
 
 class FunctionNode:
     def __init__(self, type, name, params, localParams = 0):
@@ -385,7 +401,7 @@ class FunctionNode:
         
         
     def getEpilogue(self):
-        return f'\tmovl %ebp, %esp\n\tpop %ebp\n\tret\n\n\n'
+        return f'\tmovl %ebp, %esp\n\tpopl %ebp\n\tret\n\n\n'
         
 class OperationNode:
     def __init__(self, operator, param1, param2):
@@ -395,43 +411,49 @@ class OperationNode:
         self.write()
         
     def get(self):
-        return eval(f'int(self.param1.get() {self.operator} self.param2.get())')
+        return ''
       
     def write(self):
-        string = ''
-        if isinstance(self.param2, IdNode):
-            string = '\tmovl ' + self.param2.write() + ', %ebx\n'
-            p2str = '%ebx'
-        elif isinstance(self.param2, NumNode): # if it is a number store get its content
-            p2str = "$" + self.param2.write()
-        else:
-            string = '\tpopl %ebx\n'
-            p2str = '%ebx'
+        
+        # self.param1.write()
+        # self.param2.write()
+        string = '\tpopl %ebx\n\tpopl %eax\n'
+        # string = ''
+        
+        # if isinstance(self.param2, IdNode):
+        #     string = '\tmovl ' + self.param2.write() + ', %ebx\n'
+        #     p2str = '%ebx'
+        # elif isinstance(self.param2, NumNode): # if it is a number store get its content
+        #     string = f'\tmovl ${self.param2.write()}, %ebx\n'
+        #     p2str = "$" + self.param2.write()
+        # else:
+        #     string = '\tpopl %ebx\n'
+        #     p2str = '%ebx'
 
-        if isinstance(self.param1, IdNode):
-            string+= f'\tmovl {self.param1.write()}, %eax\n'
-        elif isinstance(self.param1, NumNode):
-            string += '\tmovl $' + str(self.param1.write()) + ', %eax\n'
-        else:
-            string += '\tpopl %eax\n'
+        # if isinstance(self.param1, IdNode):
+        #     string+= f'\tmovl {self.param1.write()}, %eax\n'
+        # elif isinstance(self.param1, NumNode):
+        #     string += '\tmovl $' + str(self.param1.write()) + ', %eax\n'
+        # else:
+        #     string += '\tpopl %eax\n'
 
         if self.operator == '+':
-            string +='\taddl ' + p2str + ', %eax\n'
+            string +='\taddl %ebx, %eax\n'
             string +='\tpushl %eax\n'
         elif self.operator == '-':
-            string +='\tsubl ' + p2str + ', %eax\n'
+            string +='\tsubl %ebx, %eax\n'
             string +='\tpushl %eax\n'
         elif self.operator == '*':
-            string +='\timull ' + p2str + ', %eax\n'
+            string +='\timull %ebx, %eax\n'
             string +='\tpushl %eax\n'
         elif self.operator == '/':
             string +='\tcdq\n'
-            string +='\tidivl ' + p2str + '\n'
+            string +='\tidivl %ebx\n'
             string +='\tpushl %eax\n'
             
 
         CToAssembly(string)
-        return string
+        return ''
             
 class UniqueNode:
     def __init__(self, operator, param):   
@@ -443,29 +465,35 @@ class UniqueNode:
     def write(self):
         return f'{self.operator} {self.param.write()}'    
 
+
 class IdNode:
     def __init__(self, id, val, pos, env = None):
         self.id = id
         self.val = val
         self.env = env
         self.pos = pos
-        
+        self.flag = 0
     def get(self):
         return self.val.get()
         
     def write(self):
-        return f'{self.pos}(%ebp)'
+        if not self.flag:
+            CToAssembly(f'\tpushl {self.pos}(%ebp) # pushl id node\n')
+        else:
+            self.flag = 1
+        #return f'{self.pos}(%ebp)'
         #return f'{self.id}, {self.val}, {self.env}'
     
 class NumNode:
     def __init__(self, num):
         self.num = num
-    
+        
     def get(self):
         return self.num
 
     def write(self):
-        return f'{self.num}'
+        # return f'{self.num}'
+        CToAssembly(f'\tpushl ${self.num} # pushl num node\n')
 
 def SysError(msg):
     with open('output.s', 'w') as file:
@@ -496,16 +524,15 @@ if __name__ == '__main__':
 
     while True:
         try:
-            text = input('> ')
+            # text = input('> ')
+            text = 'int main(void) { int a = 2; printf("%d", a); }'
+            # text = 'int a(void) { int a = 0; int b = 2; int c = 3; c = a * b; return 2*c/4; }'
+            # text = 'int main(void) { int a = 2*3*4; int b = a - 2 - 1; return a; }'
             if text == 'clear':
                 os.system('clear')
                 continue
             if text == 'exit':
                 break
-            
-            if text == 'print':
-                parser.printMap()
-                continue
 
         except EOFError:
             break
@@ -515,4 +542,5 @@ if __name__ == '__main__':
             parser.parse(tokenList)
             
             writeToFile()
+            break
             
