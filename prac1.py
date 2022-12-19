@@ -1,6 +1,8 @@
 import os
 from sly import Parser
 from lexer import CalcLexer
+from functools import reduce
+import numpy as np
 
 
 instructions = []
@@ -84,15 +86,12 @@ class CalcParser(Parser):
         # write prologue
         CToAssembly(foo[p[-4]].getPrologue())
     
-    
-    # elm -> ID DIM | pointer
-    # DIM -> eps | dim2
-    # pointer-> * pointer
+        
     @_('INT ID parameters')
     def params(self, p):
         self.numParam = 1
         
-    # e.g. int name() || int name(void)
+    
     @_('', 'VOID')
     def params(self, p):
         self.numParam = 0
@@ -162,13 +161,17 @@ class CalcParser(Parser):
     def values(self, p):
         return []
     
-    @_('ID "=" expr')
+    @_('array "=" expr')
     def assign(self, p):
-        if p.ID not in self.map[self.env] and p.ID not in self.map['global']:
-            SysError(f'Variable <{p.ID}> not defined')
-            
-        #self.map[self.env][p.ID] = p.expr
-        CToAssembly(f'\tpopl %eax\n\tmovl %eax, {self.map[self.env][p.ID].pos}(%ebp)\n')
+        ID, dim = p.array
+        sz = reduce((lambda x, y: x * y), dim)
+        
+        if ID in self.map[self.env]: # LOCAL
+            CToAssembly(f'\tpopl %eax\n\tmovl %eax, {self.map[self.env][ID].pos - 4*self.map[self.env][ID].map(dim)}(%ebp)\n')
+        elif ID in self.map['global']:
+            CToAssembly(f'\tpopl %eax\n\tmovl %eax, {ID}\n')
+        else:
+            SysError(f'Variable <{ID}> not defined')    
         
     @_('expr')
     def assign(self, p):
@@ -189,48 +192,86 @@ class CalcParser(Parser):
         pass # return
 
     # variable declaration with assignment
-    @_('ID "=" expr')
+    @_('array "=" expr')
     def assignment(self, p):
-        if p.ID not in self.map[self.env]:
-            
-            CToAssembly(f'\tsubl $4, %esp\n\tpopl %eax\n\tmovl %eax, {self.localVar}(%ebp)\n')
-            idNode = IdNode(p.ID, p.expr, self.localVar, self.env)
-            self.map[self.env][p.ID] = idNode
+        id, dim = p.array # id, dims
+        
+        if id not in self.map[self.env]:
+            if not dim:
+                CToAssembly(f'\tsubl ${4}, %esp\n\tpopl %eax\n\tmovl %eax, {self.localVar}(%ebp)\n')
+            else:
+                SysError(f'cannot assign an integer to an array')
+                
+            idNode = IdNode(id, p.expr, self.localVar, self.env)
+            self.map[self.env][id] = idNode
             self.localVar -= 4 # increment var count
         else:
-            SysError(f'Variable <{p.ID}> already defined!')
+            SysError(f'Variable <{id}> already defined!')
 
     # variable declaration without assignment, default value 0
-    @_('ID')
-    def assignment(self, p):
-        if p.ID not in self.map[self.env]:
-            self.map[self.env][p.ID] = IdNode(p.ID, 0, self.localVar, self.env)
-            self.localVar -= 4 # increment var count
-            
-            CToAssembly(f'\tsubl $4, %esp\n')
-        else:
-            SysError(f'Variable <{p.ID}> already defined!')
-
-    @_('pointer')
-    def assignment(self, p):
-        if p.ID not in self.map[self.env]:
-            self.map[self.env][p.ID] = IdNode(p.ID, 0, self.localVar, self.env)
-            self.localVar -= 4 # increment var count
-            
-            CToAssembly(f'\tsubl $4, %esp\n')
-        else:
-            SysError(f'Variable <{p.ID}> already defined!')
-
-
     @_('array')
     def assignment(self, p):
-        if p.ID not in self.map[self.env]:
-            self.map[self.env][p.ID] = IdNode(p.ID, 0, self.localVar, self.env)
+        id, dim = p.array # id, dims
+        sz = reduce((lambda x, y: x * y), dim)
+        
+        if id not in self.map[self.env]:
+            self.map[self.env][id] = IdNode(id, 0, self.localVar, self.env, dim)
+            self.localVar -= 4*sz # increment var count
+            
+            CToAssembly(f'\tsubl ${4*sz}, %esp\n')
+        else:
+            SysError(f'Variable <{id}> already defined!')
+
+
+    @_('pointer = "&" array')
+    def assignment(self, p):
+        lid = p.pointer
+        rid, dim = p.array
+        
+        if rid not in self.map[self.env] and rid not in self.map['global']:
+            SysError(f'Variable <{rid}> not defined!')
+        
+        if rid in self.map[self.env] and (len(self.map[self.env][rid].dim) != len(dim) and len(dim) != 0):
+            SysError(f'The dimension does not match the original defined variable dimension')
+            
+        if rid in self.map[self.env]:
+            CToAssembly(f'\tsubl ${4}, %esp\n\tleal {self.map[self.env][rid].pos - 4*self.map[self.env][rid].map(dim)}(%ebp), {self.localVar}(%ebp)\n')
+        else:
+            CToAssembly(f'\tsubl ${4}, %esp\n\tleal ${rid}, {self.localVar}(%ebp)\n')
+        
+        self.map[self.env][lid] = PointerNode(lid, self.localVar, self.env)
+        self.localVar -= 4
+        
+        
+    @_('pointer = array')
+    def assignment(self, p):
+        lid = p.pointer
+        rid, dim = p.array
+        
+        if rid not in self.map[self.env] and rid not in self.map['global']:
+            SysError(f'Variable <{rid}> not defined!')
+        
+        if rid in self.map[self.env] and len(self.map[self.env][rid].dim) != len(dim):
+            SysError(f'The dimension does not match the original defined variable dimension')
+            
+        CToAssembly(f'\tsubl $4, %esp\n\tmovl {self.map[self.env][rid].pos - 4*self.map[self.env][rid].map(dim)}(%ebp), {self.localVar}(%ebp)\n')
+        
+        
+        self.map[self.env][rid] = PointerNode(lid, self.localVar, self.env)
+        self.localVar -= 4
+        
+          
+    @_('pointer')
+    def assignment(self, p):
+        ID = p.pointer
+        
+        if ID not in self.map[self.env]:
+            self.map[self.env][ID] = PointerNode(ID, self.localVar, self.env)
             self.localVar -= 4 # increment var count
             
             CToAssembly(f'\tsubl $4, %esp\n')
         else:
-            SysError(f'Variable <{p.ID}> already defined!')
+            SysError(f'Variable <{ID}> already defined!')
 
 
     @_('expr AND exprNOT', 'expr OR exprNOT')
@@ -288,11 +329,20 @@ class CalcParser(Parser):
         node.write()
         return node
 
-    @_('ID')
+    @_('elm')
     def fact(self, p):
-        if p.ID in self.map[self.env]:
-            self.map[self.env][p.ID].write()
-        return self.map[self.env][p.ID]
+        id, arr = p.elm 
+        dim = len(arr)
+        
+        if id in self.map[self.env]:
+            if isinstance(self.map[self.env][id], IdNode):
+                pos = self.map[self.env][id].map(arr)
+                print(f'arr:  {arr}')
+                print(f'pos: {pos}')
+                self.map[self.env][id].write(pos)
+            else:
+                self.map[self.env][id].write()
+            return self.map[self.env][id]
     
     # @_('pointer')
     # def fact(self, p):
@@ -310,25 +360,40 @@ class CalcParser(Parser):
     def fact(self, p):
         return p.call
     
-    @_('array', 'pointer', 'ID')
+    @_('array', 'pointer')
     def elm(self, p):
         return p[0]
     
-    @_('ID "[" NUM "]" dim')
-    def array(self, p):
-        num_el = p.dim * p.NUM
-        
     @_('"*" ID')
     def pointer(self, p):
-        pass
+        return p.ID
     
-    @_('"[" NUM "]"')
+    # @_('asteriskP "*"')
+    # def asterisk(self, p):
+    #     return 1 + p.asteriskP
+
+    # @_('asteriskP "*"')
+    # def asteriskP(self, p):
+    #     return 1 + p.asteriskP
+
+    # @_('')
+    # def asteriskP(self, p):
+    #     return 0
+
+    @_('ID dim')
+    def array(self, p):
+        return p.ID, p.dim
+        
+    @_('"[" NUM "]" dim')
     def dim(self, p):
-        return p.NUM
+        aux = p.dim
+        #aux.insert(0, p.NUM)
+        aux.append(p.NUM)
+        return aux
     
     @_('')
     def dim(self, p):
-        return 1   
+        return list()
 
     @_('ID "(" fun_param ")"')
     def call(self, p):
@@ -397,7 +462,7 @@ class FunctionNode:
         a = f'.text\n.globl {self.name}\n.type {self.name}, @function\n{self.name}:\n\n'
         b = f'\tpushl %ebp\n\tmovl %esp, %ebp\n'
         # c = f'\tsubl ${self.localParams}, %esp\n' # if self.localParams > 0 else '\n'
-        return a + b 
+        return a + b
         
         
     def getEpilogue(self):
@@ -414,28 +479,7 @@ class OperationNode:
         return ''
       
     def write(self):
-        
-        # self.param1.write()
-        # self.param2.write()
         string = '\tpopl %ebx\n\tpopl %eax\n'
-        # string = ''
-        
-        # if isinstance(self.param2, IdNode):
-        #     string = '\tmovl ' + self.param2.write() + ', %ebx\n'
-        #     p2str = '%ebx'
-        # elif isinstance(self.param2, NumNode): # if it is a number store get its content
-        #     string = f'\tmovl ${self.param2.write()}, %ebx\n'
-        #     p2str = "$" + self.param2.write()
-        # else:
-        #     string = '\tpopl %ebx\n'
-        #     p2str = '%ebx'
-
-        # if isinstance(self.param1, IdNode):
-        #     string+= f'\tmovl {self.param1.write()}, %eax\n'
-        # elif isinstance(self.param1, NumNode):
-        #     string += '\tmovl $' + str(self.param1.write()) + ', %eax\n'
-        # else:
-        #     string += '\tpopl %eax\n'
 
         if self.operator == '+':
             string +='\taddl %ebx, %eax\n'
@@ -454,6 +498,7 @@ class OperationNode:
 
         CToAssembly(string)
         return ''
+
             
 class UniqueNode:
     def __init__(self, operator, param):   
@@ -466,24 +511,46 @@ class UniqueNode:
         return f'{self.operator} {self.param.write()}'    
 
 
+class PointerNode:
+    def __init__(self, name, localVar, env, id = None):
+        self.name = name
+        self.pos = localVar
+        self.env = env
+        self.id = id
+        
+    def write():
+        pass
+
 class IdNode:
-    def __init__(self, id, val, pos, env = None):
+    def __init__(self, id, val, pos, env = None, dim = []):
         self.id = id
         self.val = val
         self.env = env
         self.pos = pos
+        print(f'constructor dim: {dim}')
+        self.dim = dim
         self.flag = 0
+        
     def get(self):
         return self.val.get()
         
-    def write(self):
+    def write(self, n = 0):
         if not self.flag:
-            CToAssembly(f'\tpushl {self.pos}(%ebp) # pushl id node\n')
+            CToAssembly(f'\tpushl {self.pos - 4 * n}(%ebp) # pushl id node\n')
         else:
             self.flag = 1
         #return f'{self.pos}(%ebp)'
         #return f'{self.id}, {self.val}, {self.env}'
-    
+
+    def map(self, arr):
+        offset, sz = 0, 1 
+        print(f'map : {arr}')
+        
+        for i, j in zip(arr, self.dim):
+            offset += sz*i
+            sz *= j
+        return offset
+            
 class NumNode:
     def __init__(self, num):
         self.num = num
@@ -525,9 +592,14 @@ if __name__ == '__main__':
     while True:
         try:
             # text = input('> ')
-            text = 'int main(void) { int a = 2; printf("%d", a); }'
+            # text = 'int main() { int a[2], b[2][4], *c; return 0; }'
+            
+            # text = 'int main(void) { int a = 2; printf("%d", a); }'
             # text = 'int a(void) { int a = 0; int b = 2; int c = 3; c = a * b; return 2*c/4; }'
             # text = 'int main(void) { int a = 2*3*4; int b = a - 2 - 1; return a; }'
+            # text = 'int main(void) { int a[3][2]; a[0][0] = 25; } '
+            text = 'int main(void) { int a[2][2]; int *b; b = 2; }'
+            # text = 'int main(void) { int a[3][2]; int b = a[1][1] + 1; } '
             if text == 'clear':
                 os.system('clear')
                 continue
