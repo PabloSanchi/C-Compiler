@@ -235,7 +235,6 @@ class CalcParser(Parser):
         environl = searchVariable(IDl)
         environr = searchVariable(IDr)
 
-        
         # leal right variable
         if environr != 0:
             if not dimr:
@@ -260,17 +259,15 @@ class CalcParser(Parser):
     
     @_('INT list')
     def declare(self, p): # we do not need to know its type because they are all integers for now
-        pass #return p.type
-    
-    # @_('empty8 assignment empty9 assignments')
+        pass
+
     @_('assignment assignments')
     def list(self, p):
-       pass # return p[-2]
+       pass
     
-    # @_('"," empty10 assignment empty11 assignments', '')
     @_('"," assignment assignments', '')
     def assignments(self, p):
-        pass # return
+        pass
 
     # variable declaration with assignment
     @_('array "=" expr')
@@ -299,7 +296,6 @@ class CalcParser(Parser):
         id, dim = p.array # id, dims
 
         sz = reduce((lambda x, y: x * y), dim) if dim else 1
-        # print(environment)
         searchNotVariable(id)
     
         environment[-1][id] = IdNode(id, 0, self.localVar, self.env, dim)
@@ -315,9 +311,6 @@ class CalcParser(Parser):
         
         environ = searchVariable(rid)
         searchNotVariable(lid)
-        
-        # if rid not in self.map[self.env] and rid not in self.map['global']:
-        #     SysError(f'Variable <{rid}> not defined!')
         
         if len(environment[environ][rid].dim) != len(dim) and len(dim) != 0:
             SysError(f'The dimension does not match the original defined variable dimension')
@@ -339,9 +332,6 @@ class CalcParser(Parser):
         
         environ = searchVariable(rid)
         searchNotVariable(lid)
-        
-        # if rid not in self.map[self.env] and rid not in self.map['global']:
-        #     SysError(f'Variable <{rid}> not defined!')
         
         if len(environment[environ][rid].dim) != len(dim) and len(dim) != 0:
             SysError(f'The dimension does not match the original defined variable dimension')
@@ -389,9 +379,9 @@ class CalcParser(Parser):
        'comp LEQ sum',
        'comp ">" sum',
        'comp "<" sum')
+       
     def comp(self, p):
         return OperationNode(p[1], p.comp, p.sum)
-    
     
     @_('sum')
     def comp(self, p):
@@ -425,23 +415,15 @@ class CalcParser(Parser):
             id, arr = p.elm 
         else:
             id = p.elm
-        # dim = len(arr)
         
         environ = searchVariable(id)
         
-        # if id in self.map[self.env]:
         if isinstance(environment[environ][id], IdNode):
             pos = environment[environ][id].map(arr)
-            # print(f'arr:  {arr}')
-            # print(f'pos: {pos}')
             environment[environ][id].write(pos)
         else:
             environment[environ][id].write()
         return environment[environ][id]
-    
-    # @_('pointer')
-    # def fact(self, p):
-    #     pass
 
     @_('"-" fact')
     def fact(self, p):
@@ -462,18 +444,6 @@ class CalcParser(Parser):
     @_('"*" ID')
     def pointer(self, p):
         return p.ID
-    
-    # @_('asteriskP "*"')
-    # def asterisk(self, p):
-    #     return 1 + p.asteriskP
-
-    # @_('asteriskP "*"')
-    # def asteriskP(self, p):
-    #     return 1 + p.asteriskP
-
-    # @_('')
-    # def asteriskP(self, p):
-    #     return 0
 
     @_('ID dim')
     def array(self, p):
@@ -714,5 +684,3 @@ if __name__ == '__main__':
             
             writeToFile()
             break
-                
-            
