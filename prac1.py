@@ -7,6 +7,7 @@ environment = [[]]
 var_globales = []
 instructions = []
 constants = []
+label = 0
 
 def searchVariable(id):
     global environment
@@ -55,7 +56,6 @@ class CalcParser(Parser):
     def __init__(self):
         self.env = 'global'
         self.localVar = -4
-        self.numParam = 0
         self.checkParam = 0
            
     @_('id_global', '')
@@ -117,9 +117,18 @@ class CalcParser(Parser):
     def emptyEnv(self, p):
         global foo, environment
         # create environment for the function
+        params = p[-2]
         environment.append({})
+        if params:
+            pos = 8
+            for param in params:
+                if param[0] == '*':
+                    environment[-1][param[1:]] = PointerNode(param[1:], pos, p[-4])
+                else:
+                    environment[-1][param] = IdNode(param, 0, pos)
+                pos += 4
         # create function node
-        foo[p[-4]] = FunctionNode(p[-5], p[-4], self.numParam)
+        foo[p[-4]] = FunctionNode(p[-5], p[-4], len(params))
         self.env = p[-4] # change environment
         # write prologue
         CToAssembly(foo[p[-4]].getPrologue())
@@ -127,20 +136,27 @@ class CalcParser(Parser):
         
     @_('INT ID parameters')
     def params(self, p):
-        self.numParam = 1
+        return [p.ID] +  p.parameters
         
-    
+    @_('INT pointer parameters')
+    def params(self, p):
+        return ['*'+p.pointer] +  p.parameters
+
     @_('', 'VOID')
     def params(self, p):
-        self.numParam = 0
+        return []
     
     @_('"," INT ID parameters')
     def parameters(self, p):
-        self.numParam += 1
+        return [p.ID] + p.parameters
+
+    @_('"," INT pointer parameters')
+    def parameters(self, p):
+        return ['*'+p.pointer] + p.parameters
 
     @_('')
     def parameters(self, p):
-        pass
+        return []
     
     @_('declare ";" definition', 
        'assign ";" definition', 
@@ -179,20 +195,51 @@ class CalcParser(Parser):
             constants.append(p.STRING)
         
         CToAssembly(f'.s{st}:\n\t.string {p.STRING}\n', False) # create constant (string)
-        string = f'$s{st}'
+        string = f'pushl $s{st}'
         return string 
     
-    @_('"," ID values')
+    @_('"," elm values')
     def values(self, p):
         global environment
         l = []
-        environ = searchVariable(p.ID)
+        
+        if(len(p.elm) > 1): # ARRAY, or pointer without *
+            id, dim = p.elm 
+            environ = searchVariable(id)
+            if environ != 0:
+                if isinstance(environment[environ][id], PointerNode):
+                    l.append(f'pushl {environment[environ][id].pos}(%ebp)')
+                else:
+                    l.append(f'pushl {environment[environ][id].pos - 4*environment[environ][id].map(dim)}(%ebp)')
+            else:
+                l.append(f'pushl {id}')
+        else: # POINTER with *
+            id = p.elm
+            environ = searchVariable(id)
+            l.append(f'movl {environment[environ][id].pos}(%ebp), %eax\n\tmovl [%eax], %eax\n\tpushl %eax')
 
-        if environ != 0:
-            l.append(f'{environment[environ][p.ID].pos}(%ebp)')
-        else:
-            l.append(p.ID)
+        return l + p.values
 
+    @_('"," "&" elm values')
+    def values(self, p):
+        global environment
+        l = []
+        
+        if(len(p.elm) > 1): # ARRAY, or pointer without *
+            id, dim = p.elm 
+            environ = searchVariable(id)
+            if environ != 0:
+                if isinstance(environment[environ][id], PointerNode):
+                    l.append(f'leal {environment[environ][id].pos}(%ebp), %eax\n\tpushl %eax')
+                else:
+                    l.append(f'leal {environment[environ][id].pos - 4*environment[environ][id].map(dim)}(%ebp), %eax\n\tpushl %eax')
+            else:
+                l.append(f'pushl ${id}')
+        else: # ref to POINTER (&*), &*a == a (a is a pointer)
+            id = p.elm
+            environ = searchVariable(id)
+            l.append(f'pushl {environment[environ][id].pos}(%ebp)')
+        
         return l + p.values
     
     @_('')
@@ -203,9 +250,9 @@ class CalcParser(Parser):
     def assign(self, p):
         global environment
         ID = p.pointer
-        environ = searchVariable(p.ID) # if does not exists it will give an error
+        environ = searchVariable(ID) # if does not exists it will give an error
 
-        CToAssembly(f'\tmovl {environment[environ][ID].pos}(%ebp), %ebx\n\tpopl %eax\n\tmovl %eax, (%ebx)\n')
+        CToAssembly(f'\tmovl {environment[environ][ID].pos}(%ebp), %ebx\n\tpopl %eax\n\tmovl %eax, [%ebx]\n')
    
 
     @_('array "=" expr')
@@ -216,7 +263,7 @@ class CalcParser(Parser):
         environ = searchVariable(ID) # if does not exists it will give an error
         
         if isinstance(p.expr, PointerNode): 
-            CToAssembly(f'\tpopl %eax\n\tmovl (%eax), %eax\n\tpushl %eax\n')
+            CToAssembly(f'\tpopl %eax\n\tmovl [%eax], %eax\n\tpushl %eax\n')
         
         if environ == 0: # global variable
             CToAssembly(f'\tpopl %eax\n\tmovl %eax, {ID}\n')
@@ -277,7 +324,7 @@ class CalcParser(Parser):
         
         searchNotVariable(id) # if exists it will give an error
         if isinstance(p.expr, PointerNode): 
-            CToAssembly(f'\tpopl %eax\n\tmovl (%eax), %eax\n\tpushl %eax\n')
+            CToAssembly(f'\tpopl %eax\n\tmovl [%eax], %eax\n\tpushl %eax\n')
         if not dim:
             CToAssembly(f'\tsubl $4, %esp\n\tpopl %eax\n\tmovl %eax, {self.localVar}(%ebp)\n')
         else:
@@ -352,8 +399,6 @@ class CalcParser(Parser):
         self.localVar -= 4 # increment var count
         CToAssembly(f'\tsubl $4, %esp\n')
     
-
-
     @_('expr AND exprNOT', 'expr OR exprNOT')
     def expr(self, p):
         if p[1] == '&&':
@@ -379,7 +424,6 @@ class CalcParser(Parser):
        'comp LEQ sum',
        'comp ">" sum',
        'comp "<" sum')
-       
     def comp(self, p):
         return OperationNode(p[1], p.comp, p.sum)
     
@@ -411,19 +455,22 @@ class CalcParser(Parser):
 
     @_('elm')
     def fact(self, p):
-        if(len(p.elm) > 1):
-            id, arr = p.elm 
-        else:
+        if(len(p.elm) > 1): 
+            id, dim = p.elm 
+        else: # POINTER
             id = p.elm
         
         environ = searchVariable(id)
         
-        if isinstance(environment[environ][id], IdNode):
-            pos = environment[environ][id].map(arr)
+        if environ == 0: # GLOBAL
+            CToAssembly(f'\tpushl {id}\n')
+        elif isinstance(environment[environ][id], IdNode): # LOCAL
+            pos = environment[environ][id].map(dim)
             environment[environ][id].write(pos)
-        else:
+        else: # POINTER
             environment[environ][id].write()
-        return environment[environ][id]
+        
+        return environment[environ][id] if environ > 0 else id
 
     @_('"-" fact')
     def fact(self, p):
@@ -462,23 +509,104 @@ class CalcParser(Parser):
 
     @_('ID "(" fun_param ")"')
     def call(self, p):
-        return callNode()
+        # print(f'param: {p.fun_param}')
+        return callNode(p.ID, p.fun_param)
 
-    @_('expr fun_params')
+    @_('elm fun_params')
     def fun_param(self, p):
-        self.checkParam = 1
+        global environment
+        l = []
+        
+        if(len(p.elm) > 1): # ARRAY, or pointer without *
+            id, dim = p.elm 
+            environ = searchVariable(id)
+            if environ != 0:
+                if isinstance(environment[environ][id], PointerNode):
+                    l.append(f'pushl {environment[environ][id].pos}(%ebp)')
+                else:
+                    l.append(f'pushl {environment[environ][id].pos - 4*environment[environ][id].map(dim)}(%ebp)')
+            else:
+                l.append(f'pushl {id}')
+        else: # POINTER with *
+            id = p.elm
+            environ = searchVariable(id)
+            l.append(f'movl {environment[environ][id].pos}(%ebp), %eax\n\tmovl [%eax], %eax\n\tpushl %eax')
+
+        return l + p.fun_params
+
+    @_('"&" elm fun_params')
+    def fun_param(self, p):
+        global environment
+        l = []
+        
+        if(len(p.elm) > 1): # ARRAY, or pointer without *
+            id, dim = p.elm 
+            environ = searchVariable(id)
+            if environ != 0:
+                if isinstance(environment[environ][id], PointerNode):
+                    l.append(f'leal {environment[environ][id].pos}(%ebp), %eax\n\tpushl %eax')
+                else:
+                    l.append(f'leal {environment[environ][id].pos - 4*environment[environ][id].map(dim)}(%ebp), %eax\n\tpushl %eax')
+            else:
+                l.append(f'pushl ${id}')
+        else: # ref to POINTER (&*), &*a == a (a is a pointer)
+            id = p.elm
+            environ = searchVariable(id)
+            l.append(f'pushl {environment[environ][id].pos}(%ebp)')
+        
+        return l + p.fun_params
 
     @_('')
     def fun_param(self, p):
-        self.checkParam = 0
+        return []
 
-    @_('"," expr fun_params')
+    @_('"," elm fun_params')
     def fun_params(self, p):
-        self.checkParam += 1
+        global environment
+        l = []
+        
+        if(len(p.elm) > 1): # ARRAY, or pointer without *
+            id, dim = p.elm 
+            environ = searchVariable(id)
+            if environ != 0:
+                if isinstance(environment[environ][id], PointerNode):
+                    l.append(f'pushl {environment[environ][id].pos}(%ebp)')
+                else:
+                    l.append(f'pushl {environment[environ][id].pos - 4*environment[environ][id].map(dim)}(%ebp)')
+            else:
+                l.append(f'pushl {id}')
+        else: # POINTER with *
+            id = p.elm
+            environ = searchVariable(id)
+            l.append(f'movl {environment[environ][id].pos}(%ebp), %eax\n\tmovl [%eax], %eax\n\tpushl %eax')
 
+        return l + p.fun_params
+
+    @_('"," "&" elm fun_params')
+    def fun_params(self, p):
+        global environment
+        l = []
+        
+        if(len(p.elm) > 1): # ARRAY, or pointer without *
+            id, dim = p.elm 
+            environ = searchVariable(id)
+            if environ != 0:
+                if isinstance(environment[environ][id], PointerNode):
+                    l.append(f'leal {environment[environ][id].pos}(%ebp), %eax\n\tpushl %eax')
+                else:
+                    l.append(f'leal {environment[environ][id].pos - 4*environment[environ][id].map(dim)}(%ebp), %eax\n\tpushl %eax')
+            else:
+                l.append(f'pushl ${id}')
+        else: # ref to POINTER (&*), &*a == a (a is a pointer)
+            id = p.elm
+            environ = searchVariable(id)
+            l.append(f'pushl {environment[environ][id].pos}(%ebp)')
+        
+        return l + p.fun_params
+    
     @_('')
     def fun_params(self, p):
-        pass
+        return []
 
 
 class callNode:
@@ -489,15 +617,14 @@ class callNode:
                 SysError(f'Function <{name}> not defined')
             if foo[name].type == 'void':
                 SysError(f'Function <{name}> is void type')
+                
             if len(params) < foo[name].params:
                 SysError(f'too few arguments to function {name}')
             elif len(params) > foo[name].params:
                 SysError(f'too many arguments to function {name}')
-        else:
-            
+        else: # PRINTF or SCANF
             given = len(params)-1
-            needed = constants[int(params[0][2:])].count('%d')
-                     
+            needed = constants[int(params[0][8:])].count('%d')
             if given > needed:
                 SysError(f' more \'%\' conversions than data arguments')
             elif given < needed:
@@ -510,8 +637,14 @@ class callNode:
     def write(self):
         
         for param in self.params[::-1]:
-            CToAssembly(f'\tpushl {param}\n')
-        CToAssembly(f'\tcall {self.name}\n\taddl ${len(self.params)*4}, %esp\n')
+            print(param)
+            if param != '':
+                CToAssembly(f'\t{param}\n')
+        
+        if(len(self.params) > 0):
+            CToAssembly(f'\tcall {self.name}\n\taddl ${len(self.params)*4}, %esp\n')
+        else:
+            CToAssembly(f'\tcall {self.name}\n')
 
 class FunctionNode:
     def __init__(self, type, name, params, localParams = 0):
@@ -544,6 +677,7 @@ class OperationNode:
         return ''
       
     def write(self):
+        global label
         string = '\tpopl %ebx\n\tpopl %eax\n'
 
         if self.operator == '+':
@@ -559,20 +693,71 @@ class OperationNode:
             string +='\tcdq\n'
             string +='\tidivl %ebx\n'
             string +='\tpushl %eax\n'
-            
+        elif self.operator == '>':
+            string += '\tcmpl %ebx, %eax\n'
+            string += f'\tjg label{label}\n'
+            string += f'\tpushl $0\n\tjmp label{label+1}\n'
+            string += f'label{label}:\n'
+            string += f'\tpushl $1\n'
+            string += f'label{label+1}:\n'
+            label += 2
+        elif self.operator == '<':
+            string += '\tcmpl %ebx, %eax\n'
+            string += f'\tjl label{label}\n'
+            string += f'\tpushl $0\n\tjmp label{label+1}\n'
+            string += f'label{label}:\n'
+            string += f'\tpushl $1\n'
+            string += f'label{label+1}:\n'
+            label += 2
+        elif self.operator == '<=':
+            string += '\tcmpl %ebx, %eax\n'
+            string += f'\tjle label{label}\n'
+            string += f'\tpushl $0\n\tjmp label{label+1}\n'
+            string += f'label{label}:\n'
+            string += f'\tpushl $1\n'
+            string += f'label{label+1}:\n'
+            label += 2
+        elif self.operator == '>=':
+            string += '\tcmpl %ebx, %eax\n'
+            string += f'\tjge label{label}\n'
+            string += f'\tpushl $0\n\tjmp label{label+1}\n'
+            string += f'label{label}:\n'
+            string += f'\tpushl $1\n'
+            string += f'label{label+1}:\n'
+            label += 2
+        elif self.operator == "==":
+            string += '\tcmpl %ebx, %eax\n'
+            string += f'\tje label{label}\n'
+            string += f'\tpushl $0\n\tjmp label{label+1}\n'
+            string += f'label{label}:\n'
+            string += f'\tpushl $1\n'
+            string += f'label{label+1}:\n'
+            label += 2
+        elif self.operator == '!=':
+            string += '\tcmpl %ebx, %eax\n'
+            string += f'\tjne label{label}\n'
+            string += f'\tpushl $0\n\tjmp label{label+1}\n'
+            string += f'label{label}:\n'
+            string += f'\tpushl $1\n'
+            string += f'label{label+1}:\n'
+            label += 2
+        elif self.operator == 'and':
+            # string += '\tandl %ebx, %eax\n'
+            string += '\tcmpl $0, %eax\n'
+            string += f'\tje label{label+1}\n'
+            string += '\tcmpl $0, %ebx\n'
+        elif self.operator == 'or':
+            pass
 
         CToAssembly(string)
-        return ''
-
-            
+        return ''            
 class UniqueNode:
     def __init__(self, operator, param):   
         self.param = param
         self.operator = operator
-    def get(self):
-        return eval(f'int({self.operator} self.param.get())')
 
     def write(self):
+        # popl , eax*-1, pushl
         return f'{self.operator} {self.param.write()}'    
 
 
@@ -583,10 +768,11 @@ class PointerNode:
         self.env = env
         self.id = id
         self.flag = 0
+        # self.write()
         
     def write(self):
         if not self.flag:
-            CToAssembly(f'\tpushl {self.pos}(%ebp) # pushl id node\n')
+            CToAssembly(f'\tpushl {self.pos}(%ebp) # pushl pointer dir node\n')
         else:
             self.flag = 1
 
@@ -612,7 +798,6 @@ class IdNode:
 
     def map(self, arr):
         offset, sz = 0, 1 
-        print(f'map : {arr}')
         
         for i, j in zip(arr, self.dim):
             offset += sz*i
@@ -663,12 +848,18 @@ if __name__ == '__main__':
             # text = 'int a; int main() {int a = 2;} void a() {int a = 2;}'
             
             # text = 'int main(void) { int a = 2; printf("%d", a); }'
+            # text = 'int main(void) { int *a; printf("%d", a);}'
+            # text = 'int k; int media(int a, int b) { return 2;} int main(void) { int *a; k = 4; *a = media(a, k);}'
+            # text = 'int main(){int *a, *b; scanf("%d%d", &a, &b);}'
+            # text = 'int k; int media(int *a, int* b) { return (*a+*b)/2;} int main(void) { int a; k = 4; *a = 2; *a = media(&a, &k);}'
+            # text = 'int main(void) { int *a; scanf("%d", &*a); }'
             # text = 'int a(void) { int a = 0; int b = 2; int c = 3; c = a * b; return 2*c/4; }'
             # text = 'int main(void) { int a = 2*3*4; int b = a - 2 - 1; return a; }'
             # text = 'int main(void) { int a[3][2]; a[0][0] = 25; } '
             # text = 'int main(void) { int a[2][2]; int *b; int c; int d; b = &a[0][0]; c = *b; a[0][0] = *b;  } '
-            text = 'int x; int k, y; int main(void) { int a[2][2]; int *b; a[0][1] = *b; } '
+            # text = 'int x; int k, y; int main(void) { int a[2][2]; int *b; a[0][1] = *b; } '
             # text = 'int main(void) { int a[3][2]; int b = a[1][1] + 1; } '
+            text = 'int main() {int a = 3 < 2; int b = 4 != 4 > 3;}'
             if text == 'clear':
                 os.system('clear')
                 continue
@@ -684,3 +875,4 @@ if __name__ == '__main__':
             
             writeToFile()
             break
+
