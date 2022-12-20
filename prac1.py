@@ -2,9 +2,8 @@ import os
 from sly import Parser
 from lexer import CalcLexer
 from functools import reduce
-import numpy as np
 
-
+var_globales = []
 instructions = []
 constants = []
 
@@ -15,9 +14,13 @@ def CToAssembly(string, append = True):
     # with open('output.s', 'a') as file:
     #     file.write(string)
 
+def newVarGlobal(name):
+    var_globales.append(".comm " + name + ", 4, 4\n")
+
 def writeToFile():
-    global instructions
-    string = ''.join(instructions)
+    global instructions, var_globales
+    string = ''.join(var_globales) + '\n'
+    string += ''.join(instructions)
     with open('output.s', 'a') as file:
         file.write(string)
         
@@ -30,7 +33,7 @@ class CalcParser(Parser):
     debugfile = 'parser.txt'
     
     def __init__(self):
-        self.map = {'global': {}}
+        self.map = {'global': []}
         self.env = 'global'
         self.localVar = -4
         self.numParam = 0
@@ -52,14 +55,29 @@ class CalcParser(Parser):
     def corpus(self, p):
         pass
     
-    @_('empty1 assignments ";"', 'empty1 "=" expr assignments ";"')
+    @_('empty1 global_assignments ";"')
     def corpus(self, p):
         pass      
             
     @_('')
     def empty1(self, p):
-        pass # create node id
-        
+        if p[-1] in self.map['global']:
+            SysError(f'Variable \'{p[-1]}\' already defined')
+        newVarGlobal(p[-1])
+        self.map['global'].append(p[-1])
+    
+    @_('"," ID global_assignments')
+    def global_assignments(self, p):
+        global var_globales
+        if p.ID in self.map['global']:
+            SysError(f'Variable \'{p.ID}\' already defined')
+        newVarGlobal(p.ID)
+        self.map['global'].append(p.ID)
+    
+    @_('')
+    def global_assignments(self, p):
+        pass
+    
     @_('"(" params ")" emptyEnv "{" definition "}"')
     def function(self, p):
         global foo
@@ -160,19 +178,64 @@ class CalcParser(Parser):
     @_('')
     def values(self, p):
         return []
-    
+
+    @_('pointer "=" expr')
+    def assign(self, p):
+        ID = p.pointer
+        if ID in self.map[self.env]: # SOLO LOCAL
+            CToAssembly(f'\tmovl {self.map[self.env][ID].pos}(%ebp), %ebx\n\tpopl %eax\n\tmovl %eax, (%ebx)\n')
+        else:
+            SysError(f'Variable <{ID}> not defined')    
+
+
     @_('array "=" expr')
     def assign(self, p):
         ID, dim = p.array
-        sz = reduce((lambda x, y: x * y), dim)
         
-        if ID in self.map[self.env]: # LOCAL
+        if isinstance(p.expr, PointerNode): 
+            CToAssembly(f'\tpopl %eax\n\tmovl (%eax), %eax\n\tpushl %eax\n')
+        
+        if ID in self.map[self.env] and isinstance(self.map[self.env][ID], PointerNode): # LOCAL POINTER
+            CToAssembly(f'\tpopl %eax\n\tmovl %eax, {self.map[self.env][ID].pos}(%ebp)\n')
+        elif ID in self.map[self.env]: # LOCAL
             CToAssembly(f'\tpopl %eax\n\tmovl %eax, {self.map[self.env][ID].pos - 4*self.map[self.env][ID].map(dim)}(%ebp)\n')
         elif ID in self.map['global']:
             CToAssembly(f'\tpopl %eax\n\tmovl %eax, {ID}\n')
         else:
-            SysError(f'Variable <{ID}> not defined')    
+            SysError(f'Variable <{ID}> not defined')
+
+    @_('array "=" "&" array')
+    def assign(self, p):
+        IDl, diml = p[0]
+        IDr, dimr = p[3]
         
+        # left variable not defined
+        if IDl not in self.map[self.env] and IDl not in self.map['global']:
+            SysError(f'Variable <{IDl}> not defined') 
+          
+         # right variable not defined   
+        if IDr not in self.map[self.env] and IDr not in self.map['global']:
+            SysError(f'Variable <{IDr}> not defined')
+        
+        
+        # leal right variable
+        if IDr in self.map[self.env]:
+            if not dimr:
+                CToAssembly(f'\tleal {self.map[self.env][IDr].pos}(%ebp), %eax\n')
+            else:
+                CToAssembly(f'\tleal {self.map[self.env][IDr].pos - 4*self.map[self.env][IDr].map(dimr)}(%ebp), %eax\n')
+        else:
+            CToAssembly(f'\tleal {IDr}, %eax\n')
+        # move local variable 
+        if IDl in self.map[self.env]:
+            # if it a unique variable or pointer
+            if not diml:
+                CToAssembly(f'\tmovl %eax, {self.map[self.env][IDl].pos}(%ebp)\n')
+            else:
+                CToAssembly(f'\tmovl %eax, {self.map[self.env][IDl].pos - 4*self.map[self.env][IDl].map(diml)}(%ebp)\n')
+        else: # IDl in self.map['global']:
+            CToAssembly(f'\tmovl %eax, {IDl}\n')        
+            
     @_('expr')
     def assign(self, p):
         return p.expr
@@ -197,8 +260,10 @@ class CalcParser(Parser):
         id, dim = p.array # id, dims
         
         if id not in self.map[self.env]:
+            if isinstance(p.expr, PointerNode): 
+                CToAssembly(f'\tpopl %eax\n\tmovl (%eax), %eax\n\tpushl %eax\n')
             if not dim:
-                CToAssembly(f'\tsubl ${4}, %esp\n\tpopl %eax\n\tmovl %eax, {self.localVar}(%ebp)\n')
+                CToAssembly(f'\tsubl $4, %esp\n\tpopl %eax\n\tmovl %eax, {self.localVar}(%ebp)\n')
             else:
                 SysError(f'cannot assign an integer to an array')
                 
@@ -212,7 +277,7 @@ class CalcParser(Parser):
     @_('array')
     def assignment(self, p):
         id, dim = p.array # id, dims
-        sz = reduce((lambda x, y: x * y), dim)
+        sz = reduce((lambda x, y: x * y), dim) if dim else 1
         
         if id not in self.map[self.env]:
             self.map[self.env][id] = IdNode(id, 0, self.localVar, self.env, dim)
@@ -331,8 +396,11 @@ class CalcParser(Parser):
 
     @_('elm')
     def fact(self, p):
-        id, arr = p.elm 
-        dim = len(arr)
+        if(len(p.elm) > 1):
+            id, arr = p.elm 
+        else:
+            id = p.elm
+        # dim = len(arr)
         
         if id in self.map[self.env]:
             if isinstance(self.map[self.env][id], IdNode):
@@ -517,9 +585,13 @@ class PointerNode:
         self.pos = localVar
         self.env = env
         self.id = id
+        self.flag = 0
         
-    def write():
-        pass
+    def write(self):
+        if not self.flag:
+            CToAssembly(f'\tpushl {self.pos}(%ebp) # pushl id node\n')
+        else:
+            self.flag = 1
 
 class IdNode:
     def __init__(self, id, val, pos, env = None, dim = []):
@@ -527,7 +599,6 @@ class IdNode:
         self.val = val
         self.env = env
         self.pos = pos
-        print(f'constructor dim: {dim}')
         self.dim = dim
         self.flag = 0
         
@@ -598,7 +669,8 @@ if __name__ == '__main__':
             # text = 'int a(void) { int a = 0; int b = 2; int c = 3; c = a * b; return 2*c/4; }'
             # text = 'int main(void) { int a = 2*3*4; int b = a - 2 - 1; return a; }'
             # text = 'int main(void) { int a[3][2]; a[0][0] = 25; } '
-            text = 'int main(void) { int a[2][2]; int *b; b = 2; }'
+            # text = 'int main(void) { int a[2][2]; int *b; int c; int d; b = &a[0][0]; c = *b; a[0][0] = *b;  } '
+            text = 'int x; int k, y; int main(void) { int a[2][2]; int *b; a[0][1] = *b;} '
             # text = 'int main(void) { int a[3][2]; int b = a[1][1] + 1; } '
             if text == 'clear':
                 os.system('clear')
@@ -615,4 +687,5 @@ if __name__ == '__main__':
             
             writeToFile()
             break
+                
             
