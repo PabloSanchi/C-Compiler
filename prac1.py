@@ -3,9 +3,29 @@ from sly import Parser
 from lexer import CalcLexer
 from functools import reduce
 
+environment = [[]]
 var_globales = []
 instructions = []
 constants = []
+
+def searchVariable(id):
+    global environment
+    
+    index = len(environment)-1
+    for env in environment[::-1]:
+        if id in env:
+            return index
+        index -= 1
+
+    SysError(f'Variable \'{id}\' not defined')
+
+def searchNotVariable(id):
+    global environment
+    for env in environment[len(environment)-1:0:-1]:
+        if id in env:
+            SysError(f'Variable \'{id}\' already defined')
+
+    
 
 def CToAssembly(string, append = True):
     global instructions
@@ -33,7 +53,6 @@ class CalcParser(Parser):
     debugfile = 'parser.txt'
     
     def __init__(self):
-        self.map = {'global': []}
         self.env = 'global'
         self.localVar = -4
         self.numParam = 0
@@ -61,18 +80,19 @@ class CalcParser(Parser):
             
     @_('')
     def empty1(self, p):
-        if p[-1] in self.map['global']:
+        global environment
+        if p[-1] in environment[0]:
             SysError(f'Variable \'{p[-1]}\' already defined')
         newVarGlobal(p[-1])
-        self.map['global'].append(p[-1])
+        environment[0].append(p[-1])
     
     @_('"," ID global_assignments')
     def global_assignments(self, p):
-        global var_globales
-        if p.ID in self.map['global']:
+        global var_globales, environment
+        if p.ID in environment[0]:
             SysError(f'Variable \'{p.ID}\' already defined')
         newVarGlobal(p.ID)
-        self.map['global'].append(p.ID)
+        environment[0].append(p.ID)
     
     @_('')
     def global_assignments(self, p):
@@ -90,17 +110,17 @@ class CalcParser(Parser):
         
         # restore values
         self.env = 'global' # restore environment
+        environment.pop() # Remove variables
         self.localVar = -4 # restore localVar value
         
     @_('')
     def emptyEnv(self, p):
-        global foo
+        global foo, environment
         # create environment for the function
-        self.map[p[-4]] = {}
-        self.env = p[-4]
+        environment.append({})
         # create function node
         foo[p[-4]] = FunctionNode(p[-5], p[-4], self.numParam)
-        
+        self.env = p[-4] # change environment
         # write prologue
         CToAssembly(foo[p[-4]].getPrologue())
     
@@ -164,15 +184,15 @@ class CalcParser(Parser):
     
     @_('"," ID values')
     def values(self, p):
+        global environment
         l = []
-        if p.ID in self.map[self.env]:
-            l.append(f'{self.map[self.env][p.ID].pos}(%ebp)')
-            # CToAssembly(f'\tpushl {self.map[self.env][p.ID].pos}(%ebp)\n')
-        elif p.ID in self.map['global']:
-            l.append(p.ID)
-            # CToAssembly(f'\tpushl {p.ID}\n')
+        environ = searchVariable(p.ID)
+
+        if environ != 0:
+            l.append(f'{environment[environ][p.ID].pos}(%ebp)')
         else:
-            SysError(f'Variable \'{p.ID}\' not defined')
+            l.append(p.ID)
+
         return l + p.values
     
     @_('')
@@ -181,58 +201,56 @@ class CalcParser(Parser):
 
     @_('pointer "=" expr')
     def assign(self, p):
+        global environment
         ID = p.pointer
-        if ID in self.map[self.env]: # SOLO LOCAL
-            CToAssembly(f'\tmovl {self.map[self.env][ID].pos}(%ebp), %ebx\n\tpopl %eax\n\tmovl %eax, (%ebx)\n')
-        else:
-            SysError(f'Variable <{ID}> not defined')    
+        environ = searchVariable(p.ID) # if does not exists it will give an error
 
+        CToAssembly(f'\tmovl {environment[environ][ID].pos}(%ebp), %ebx\n\tpopl %eax\n\tmovl %eax, (%ebx)\n')
+   
 
     @_('array "=" expr')
     def assign(self, p):
+        global environment
         ID, dim = p.array
+        
+        environ = searchVariable(ID) # if does not exists it will give an error
         
         if isinstance(p.expr, PointerNode): 
             CToAssembly(f'\tpopl %eax\n\tmovl (%eax), %eax\n\tpushl %eax\n')
         
-        if ID in self.map[self.env] and isinstance(self.map[self.env][ID], PointerNode): # LOCAL POINTER
-            CToAssembly(f'\tpopl %eax\n\tmovl %eax, {self.map[self.env][ID].pos}(%ebp)\n')
-        elif ID in self.map[self.env]: # LOCAL
-            CToAssembly(f'\tpopl %eax\n\tmovl %eax, {self.map[self.env][ID].pos - 4*self.map[self.env][ID].map(dim)}(%ebp)\n')
-        elif ID in self.map['global']:
+        if environ == 0: # global variable
             CToAssembly(f'\tpopl %eax\n\tmovl %eax, {ID}\n')
-        else:
-            SysError(f'Variable <{ID}> not defined')
+        elif  isinstance(environment[environ][ID], PointerNode): # local pointer
+            CToAssembly(f'\tpopl %eax\n\tmovl %eax, {environment[environ][ID].pos}(%ebp)\n')
+        else: # local variable  
+            CToAssembly(f'\tpopl %eax\n\tmovl %eax, {environment[environ][ID].pos - 4*environment[environ][ID].map(dim)}(%ebp)\n')
+    
 
     @_('array "=" "&" array')
     def assign(self, p):
+        global environment
         IDl, diml = p[0]
         IDr, dimr = p[3]
         
-        # left variable not defined
-        if IDl not in self.map[self.env] and IDl not in self.map['global']:
-            SysError(f'Variable <{IDl}> not defined') 
-          
-         # right variable not defined   
-        if IDr not in self.map[self.env] and IDr not in self.map['global']:
-            SysError(f'Variable <{IDr}> not defined')
-        
+        environl = searchVariable(IDl)
+        environr = searchVariable(IDr)
+
         
         # leal right variable
-        if IDr in self.map[self.env]:
+        if environr != 0:
             if not dimr:
-                CToAssembly(f'\tleal {self.map[self.env][IDr].pos}(%ebp), %eax\n')
+                CToAssembly(f'\tleal {environment[environr][IDr].pos}(%ebp), %eax\n')
             else:
-                CToAssembly(f'\tleal {self.map[self.env][IDr].pos - 4*self.map[self.env][IDr].map(dimr)}(%ebp), %eax\n')
+                CToAssembly(f'\tleal {environment[environr][IDr].pos - 4*environment[environr][IDr].map(dimr)}(%ebp), %eax\n')
         else:
             CToAssembly(f'\tleal {IDr}, %eax\n')
         # move local variable 
-        if IDl in self.map[self.env]:
+        if environl != 0:
             # if it a unique variable or pointer
             if not diml:
-                CToAssembly(f'\tmovl %eax, {self.map[self.env][IDl].pos}(%ebp)\n')
+                CToAssembly(f'\tmovl %eax, {environment[environl][IDl].pos}(%ebp)\n')
             else:
-                CToAssembly(f'\tmovl %eax, {self.map[self.env][IDl].pos - 4*self.map[self.env][IDl].map(diml)}(%ebp)\n')
+                CToAssembly(f'\tmovl %eax, {environment[environl][IDl].pos - 4*environment[environl][IDl].map(diml)}(%ebp)\n')
         else: # IDl in self.map['global']:
             CToAssembly(f'\tmovl %eax, {IDl}\n')        
             
@@ -257,72 +275,80 @@ class CalcParser(Parser):
     # variable declaration with assignment
     @_('array "=" expr')
     def assignment(self, p):
+        global environment
         id, dim = p.array # id, dims
         
-        if id not in self.map[self.env]:
-            if isinstance(p.expr, PointerNode): 
-                CToAssembly(f'\tpopl %eax\n\tmovl (%eax), %eax\n\tpushl %eax\n')
-            if not dim:
-                CToAssembly(f'\tsubl $4, %esp\n\tpopl %eax\n\tmovl %eax, {self.localVar}(%ebp)\n')
-            else:
-                SysError(f'cannot assign an integer to an array')
-                
-            idNode = IdNode(id, p.expr, self.localVar, self.env)
-            self.map[self.env][id] = idNode
-            self.localVar -= 4 # increment var count
+        searchNotVariable(id) # if exists it will give an error
+        if isinstance(p.expr, PointerNode): 
+            CToAssembly(f'\tpopl %eax\n\tmovl (%eax), %eax\n\tpushl %eax\n')
+        if not dim:
+            CToAssembly(f'\tsubl $4, %esp\n\tpopl %eax\n\tmovl %eax, {self.localVar}(%ebp)\n')
         else:
-            SysError(f'Variable <{id}> already defined!')
+            SysError(f'cannot assign an integer to an array')
+            
+        idNode = IdNode(id, p.expr, self.localVar, self.env)
+        
+        environment[-1][id] = idNode
+        
+        self.localVar -= 4 # increment var count
 
     # variable declaration without assignment, default value 0
     @_('array')
     def assignment(self, p):
+        global environment
         id, dim = p.array # id, dims
+
         sz = reduce((lambda x, y: x * y), dim) if dim else 1
-        
-        if id not in self.map[self.env]:
-            self.map[self.env][id] = IdNode(id, 0, self.localVar, self.env, dim)
-            self.localVar -= 4*sz # increment var count
-            
-            CToAssembly(f'\tsubl ${4*sz}, %esp\n')
-        else:
-            SysError(f'Variable <{id}> already defined!')
+        # print(environment)
+        searchNotVariable(id)
+    
+        environment[-1][id] = IdNode(id, 0, self.localVar, self.env, dim)
+        self.localVar -= 4*sz # increment var count    
+        CToAssembly(f'\tsubl ${4*sz}, %esp\n')
 
 
     @_('pointer = "&" array')
     def assignment(self, p):
+        global environment
         lid = p.pointer
         rid, dim = p.array
         
-        if rid not in self.map[self.env] and rid not in self.map['global']:
-            SysError(f'Variable <{rid}> not defined!')
+        environ = searchVariable(rid)
+        searchNotVariable(lid)
         
-        if rid in self.map[self.env] and (len(self.map[self.env][rid].dim) != len(dim) and len(dim) != 0):
+        # if rid not in self.map[self.env] and rid not in self.map['global']:
+        #     SysError(f'Variable <{rid}> not defined!')
+        
+        if len(environment[environ][rid].dim) != len(dim) and len(dim) != 0:
             SysError(f'The dimension does not match the original defined variable dimension')
-            
-        if rid in self.map[self.env]:
-            CToAssembly(f'\tsubl ${4}, %esp\n\tleal {self.map[self.env][rid].pos - 4*self.map[self.env][rid].map(dim)}(%ebp), {self.localVar}(%ebp)\n')
-        else:
-            CToAssembly(f'\tsubl ${4}, %esp\n\tleal ${rid}, {self.localVar}(%ebp)\n')
         
-        self.map[self.env][lid] = PointerNode(lid, self.localVar, self.env)
+        if environ != 0:   
+            CToAssembly(f'\tsubl $4, %esp\n\tleal {environment[environ][rid].pos - 4*environment[environ][rid].map(dim)}(%ebp), {self.localVar}(%ebp)\n')
+        else:
+            CToAssembly(f'\tsubl $4, %esp\n\tmovl ${rid}, {self.localVar}(%ebp)\n')
+        
+        environment[-1][lid] = PointerNode(lid, self.localVar, self.env)
         self.localVar -= 4
         
         
     @_('pointer = array')
     def assignment(self, p):
+        global environment
         lid = p.pointer
         rid, dim = p.array
         
-        if rid not in self.map[self.env] and rid not in self.map['global']:
-            SysError(f'Variable <{rid}> not defined!')
+        environ = searchVariable(rid)
+        searchNotVariable(lid)
         
-        if rid in self.map[self.env] and len(self.map[self.env][rid].dim) != len(dim):
+        # if rid not in self.map[self.env] and rid not in self.map['global']:
+        #     SysError(f'Variable <{rid}> not defined!')
+        
+        if len(environment[environ][rid].dim) != len(dim) and len(dim) != 0:
             SysError(f'The dimension does not match the original defined variable dimension')
             
-        CToAssembly(f'\tsubl $4, %esp\n\tmovl {self.map[self.env][rid].pos - 4*self.map[self.env][rid].map(dim)}(%ebp), {self.localVar}(%ebp)\n')
-        
-        
-        self.map[self.env][rid] = PointerNode(lid, self.localVar, self.env)
+        CToAssembly(f'\tsubl $4, %esp\n\tmovl {environment[environ][rid].pos - 4*environment[environ][rid].map(dim)}(%ebp), {self.localVar}(%ebp)\n')
+          
+        environ[-1][rid] = PointerNode(lid, self.localVar, self.env)
         self.localVar -= 4
         
           
@@ -330,13 +356,12 @@ class CalcParser(Parser):
     def assignment(self, p):
         ID = p.pointer
         
-        if ID not in self.map[self.env]:
-            self.map[self.env][ID] = PointerNode(ID, self.localVar, self.env)
-            self.localVar -= 4 # increment var count
-            
-            CToAssembly(f'\tsubl $4, %esp\n')
-        else:
-            SysError(f'Variable <{ID}> already defined!')
+        searchNotVariable(ID)
+    
+        environment[-1][ID] = PointerNode(ID, self.localVar, self.env)
+        self.localVar -= 4 # increment var count
+        CToAssembly(f'\tsubl $4, %esp\n')
+    
 
 
     @_('expr AND exprNOT', 'expr OR exprNOT')
@@ -402,15 +427,17 @@ class CalcParser(Parser):
             id = p.elm
         # dim = len(arr)
         
-        if id in self.map[self.env]:
-            if isinstance(self.map[self.env][id], IdNode):
-                pos = self.map[self.env][id].map(arr)
-                print(f'arr:  {arr}')
-                print(f'pos: {pos}')
-                self.map[self.env][id].write(pos)
-            else:
-                self.map[self.env][id].write()
-            return self.map[self.env][id]
+        environ = searchVariable(id)
+        
+        # if id in self.map[self.env]:
+        if isinstance(environment[environ][id], IdNode):
+            pos = environment[environ][id].map(arr)
+            # print(f'arr:  {arr}')
+            # print(f'pos: {pos}')
+            environment[environ][id].write(pos)
+        else:
+            environment[environ][id].write()
+        return environment[environ][id]
     
     # @_('pointer')
     # def fact(self, p):
@@ -534,7 +561,7 @@ class FunctionNode:
         
         
     def getEpilogue(self):
-        return f'\tmovl %ebp, %esp\n\tpopl %ebp\n\tret\n\n\n'
+        return f'\tmovl %ebp, %esp\t# EPILOGUE\n\tpopl %ebp\n\tret\n\n\n'
         
 class OperationNode:
     def __init__(self, operator, param1, param2):
@@ -663,14 +690,14 @@ if __name__ == '__main__':
     while True:
         try:
             # text = input('> ')
-            # text = 'int main() { int a[2], b[2][4], *c; return 0; }'
+            # text = 'int a; int main() {int a = 2;} void a() {int a = 2;}'
             
             # text = 'int main(void) { int a = 2; printf("%d", a); }'
             # text = 'int a(void) { int a = 0; int b = 2; int c = 3; c = a * b; return 2*c/4; }'
             # text = 'int main(void) { int a = 2*3*4; int b = a - 2 - 1; return a; }'
             # text = 'int main(void) { int a[3][2]; a[0][0] = 25; } '
             # text = 'int main(void) { int a[2][2]; int *b; int c; int d; b = &a[0][0]; c = *b; a[0][0] = *b;  } '
-            text = 'int x; int k, y; int main(void) { int a[2][2]; int *b; a[0][1] = *b;} '
+            text = 'int x; int k, y; int main(void) { int a[2][2]; int *b; a[0][1] = *b; } '
             # text = 'int main(void) { int a[3][2]; int b = a[1][1] + 1; } '
             if text == 'clear':
                 os.system('clear')
