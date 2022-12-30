@@ -9,6 +9,22 @@ instructions = []
 constants = []
 label = 0
 
+def searchTopLocalVar():
+    global environment
+
+    top = -4
+    
+    # loop through the environment array in reverse order
+    for env in environment[len(environment)-1:0:-1]:
+        if env:
+            for var in env.values():
+                top = min(top, var.pos)
+
+            return top - 4
+    
+    return top
+
+
 def searchVariable(id):
     global environment
     
@@ -22,9 +38,11 @@ def searchVariable(id):
 
 def searchNotVariable(id):
     global environment
-    for env in environment[len(environment)-1:0:-1]:
-        if id in env:
-            SysError(f'Variable \'{id}\' already defined')
+    if id in environment[-1]:
+        SysError(f'Variable \'{id}\' already defined')
+    # for env in environment[len(environment)-1:0:-1]:
+    #     if id in env:
+    #         SysError(f'Variable \'{id}\' already defined')
 
     
 
@@ -176,7 +194,88 @@ class CalcParser(Parser):
     @_('funName "(" content values ")" emptyScanfPrintf ";" definition')
     def definition(self, p):
         pass
-            
+    
+    @_('IF "(" expr ")" emptyIf "{" definition "}" otherwise')
+    def definition(self, p):    
+        pass
+        
+    @_('')
+    def emptyIf(self, p):
+        global environment, label
+        # create environment
+        environment.append({})
+        CToAssembly(f'\tpopl %eax\n\tcmpl $0, %eax\n\tje label{label} # if label\n')
+        label += 1
+        return label-1
+    
+    @_('emptyEndIf definition')
+    def otherwise(self, p):
+        pass
+
+    @_('')
+    def emptyEndIf(self, p):
+        # destroy environment
+        global environment
+        environment.pop()
+        CToAssembly(f'label{p[-4]}:\n')
+        self.localVar = searchTopLocalVar()
+        # print(self.localVar)
+
+    @_('ELSE emptyElse "{" definition "}" emptyEndElse definition')
+    def otherwise(self, p):
+        pass
+    
+    @_('')
+    def emptyElse(self, p):
+        global label
+        CToAssembly(f'\tjmp label{label}\n')
+        CToAssembly(f'label{p[-5]}:\n')
+        label += 1
+        return label-1
+
+    @_('')
+    def emptyEndElse(self, p):
+        global environment
+        environment.append({})
+        CToAssembly(f'label{p[-4]}:\n')
+        self.localVar = searchTopLocalVar()
+        print(self.localVar)
+        
+    
+    @_('WHILE emptySetLabelWhile "(" expr ")" emptyWhile "{" definition "}" emptyEndWhile definition')
+    def definition(self, p):
+        pass
+    
+    
+    @_('')
+    def emptySetLabelWhile(self, p):
+        global label
+        
+        CToAssembly(f'label{label}: # while init label\n') # first while label
+        label += 1
+        return label-1
+    
+    @_('')
+    def emptyWhile(self, p):
+        global environment, label
+        # create environment
+        environment.append({})
+        CToAssembly(f'\tpopl %eax\n\tcmpl $0, %eax\n\tje label{label} # while exit label\n') # exit while label
+        label += 1
+        return label-1 # return first while label
+        
+    @_('')
+    def emptyEndWhile(self, p):
+        global environment
+        environment.pop()
+        jumpTo = p[-8] # get label of while first label
+        exitLabel = p[-4]
+        # p[-6].write() # write while condition
+        CToAssembly(f'\tjmp label{jumpTo} # goto while init label\n') # jump to while first label
+        CToAssembly(f'label{exitLabel}: # exit label\n') # exit while label
+        self.localVar = searchTopLocalVar() # restore localVar value
+        print(self.localVar)
+     
     @_('')
     def emptyScanfPrintf(self, p):
         return callNode(p[-5], [p[-3]] + p[-2])
@@ -252,7 +351,10 @@ class CalcParser(Parser):
         ID = p.pointer
         environ = searchVariable(ID) # if does not exists it will give an error
 
-        CToAssembly(f'\tmovl {environment[environ][ID].pos}(%ebp), %ebx\n\tpopl %eax\n\tmovl %eax, [%ebx]\n')
+        if isinstance(environment[environ][ID], PointerNode):
+            CToAssembly(f'\tmovl {environment[environ][ID].pos}(%ebp), %ebx\n\tpopl %eax\n\tmovl %eax, [%ebx]\n')
+        else:
+            SysError('operand of "*" must be a pointer but has type "int"')
    
 
     @_('array "=" expr')
@@ -359,7 +461,7 @@ class CalcParser(Parser):
         environ = searchVariable(rid)
         searchNotVariable(lid)
         
-        if len(environment[environ][rid].dim) != len(dim) and len(dim) != 0:
+        if len(environment[environ][rid].dim) < len(dim) and len(dim) != 0:
             SysError(f'The dimension does not match the original defined variable dimension')
         
         if environ != 0:   
@@ -524,7 +626,10 @@ class CalcParser(Parser):
                 if isinstance(environment[environ][id], PointerNode):
                     l.append(f'pushl {environment[environ][id].pos}(%ebp)')
                 else:
-                    l.append(f'pushl {environment[environ][id].pos - 4*environment[environ][id].map(dim)}(%ebp)')
+                    if len(environment[environ][id].dim) != len(dim):
+                        SysError(f'The dimension does not match the original defined variable dimension')
+                    else:
+                        l.append(f'pushl {environment[environ][id].pos - 4*environment[environ][id].map(dim)}(%ebp)')
             else:
                 l.append(f'pushl {id}')
         else: # POINTER with *
@@ -542,13 +647,18 @@ class CalcParser(Parser):
         if(len(p.elm) > 1): # ARRAY, or pointer without *
             id, dim = p.elm 
             environ = searchVariable(id)
+            
             if environ != 0:
                 if isinstance(environment[environ][id], PointerNode):
                     l.append(f'leal {environment[environ][id].pos}(%ebp), %eax\n\tpushl %eax')
                 else:
-                    l.append(f'leal {environment[environ][id].pos - 4*environment[environ][id].map(dim)}(%ebp), %eax\n\tpushl %eax')
+                    if len(environment[environ][id].dim) != len(dim):
+                        SysError(f'The dimension does not match the original defined variable dimension')
+                    else:
+                        l.append(f'leal {environment[environ][id].pos - 4*environment[environ][id].map(dim)}(%ebp), %eax\n\tpushl %eax')
             else:
                 l.append(f'pushl ${id}')
+                
         else: # ref to POINTER (&*), &*a == a (a is a pointer)
             id = p.elm
             environ = searchVariable(id)
@@ -572,7 +682,10 @@ class CalcParser(Parser):
                 if isinstance(environment[environ][id], PointerNode):
                     l.append(f'pushl {environment[environ][id].pos}(%ebp)')
                 else:
-                    l.append(f'pushl {environment[environ][id].pos - 4*environment[environ][id].map(dim)}(%ebp)')
+                    if len(environment[environ][id].dim) != len(dim):
+                        SysError(f'The dimension does not match the original defined variable dimension')
+                    else:
+                        l.append(f'pushl {environment[environ][id].pos - 4*environment[environ][id].map(dim)}(%ebp)')
             else:
                 l.append(f'pushl {id}')
         else: # POINTER with *
@@ -594,7 +707,10 @@ class CalcParser(Parser):
                 if isinstance(environment[environ][id], PointerNode):
                     l.append(f'leal {environment[environ][id].pos}(%ebp), %eax\n\tpushl %eax')
                 else:
-                    l.append(f'leal {environment[environ][id].pos - 4*environment[environ][id].map(dim)}(%ebp), %eax\n\tpushl %eax')
+                    if len(environment[environ][id].dim) != len(dim):
+                        SysError(f'The dimension does not match the original defined variable dimension')
+                    else:
+                        l.append(f'leal {environment[environ][id].pos - 4*environment[environ][id].map(dim)}(%ebp), %eax\n\tpushl %eax')
             else:
                 l.append(f'pushl ${id}')
         else: # ref to POINTER (&*), &*a == a (a is a pointer)
@@ -742,23 +858,64 @@ class OperationNode:
             string += f'label{label+1}:\n'
             label += 2
         elif self.operator == 'and':
-            # string += '\tandl %ebx, %eax\n'
-            string += '\tcmpl $0, %eax\n'
-            string += f'\tje label{label+1}\n'
-            string += '\tcmpl $0, %ebx\n'
+            
+            # first check        
+            string += '\tcmpl $0, %eax\t # E1 AND\n'
+            string += f'\tje label{label}\n' # final label
+            # second check
+            string += '\tcmpl $0, %ebx # E2 AND\n'
+            string += f'\tje label{label}\n' # final label
+            string += '\tpushl $1\n'
+            string += f'\tjmp label{label+1}\n' # exit label              
+            # results
+            string += f'label{label}:\n'
+            string += '\tpushl $0\n'
+            string += f'label{label+1}:\n'
+            
+            label += 2
         elif self.operator == 'or':
-            pass
-
+            # first check        
+            string += '\tcmpl $0, %eax\t# E1 OR\n'
+            string += f'\tjne label{label}\n' # final label
+            # second check
+            string += '\tcmpl $0, %ebx\t# E2 OR\n'
+            string += f'\tjne label{label}\n' # final label
+            string += '\tpushl $0\n'
+            string += f'\tjmp label{label+1}\n' # exit label             
+            # results
+            string += f'label{label}:\n'
+            string += '\tpushl $1\n'
+            string += f'label{label+1}:\n'
+            
+            label +=2
         CToAssembly(string)
         return ''            
 class UniqueNode:
     def __init__(self, operator, param):   
         self.param = param
         self.operator = operator
+        self.write()
 
     def write(self):
-        # popl , eax*-1, pushl
-        return f'{self.operator} {self.param.write()}'    
+        global label
+        if self.operator == '-':
+            string = '\tpopl %eax\n'
+            string += '\tmovl $-1, %ebx\n'
+            string +='\timull %ebx, %eax\n'
+            string +='\tpushl %eax\n'
+        elif self.operator == 'not':
+            string = f'\tpopl %eax # not\n'
+            string += f'\tcmpl $0, %eax\n'
+            string += f'\tje label{label}\n'
+            string += f'\tpushl $0\n'
+            string += f'\tjmp label{label+1}\n'
+            string += f'label{label}:\n'
+            string += f'\tpushl $1\n'
+            string += f'label{label+1}:\n'
+            label += 2
+        
+        CToAssembly(string)   
+        return ''
 
 
 class PointerNode:
@@ -798,7 +955,9 @@ class IdNode:
 
     def map(self, arr):
         offset, sz = 0, 1 
-        
+        # 0 padding left in arr to match dim
+        arr = [0]*(len(self.dim) - len(arr)) + arr
+        print(arr)
         for i, j in zip(arr, self.dim):
             offset += sz*i
             sz *= j
@@ -845,8 +1004,9 @@ if __name__ == '__main__':
     while True:
         try:
             # text = input('> ')
-            # text = 'int a; int main() {int a = 2;} void a() {int a = 2;}'
-            
+            # text = 'int a; int main() {c = 2;} int c; void a() {c = 2;}' # should and must fail
+            # text = 'int a; int main() {int a = 2;} int c; void a() {c = 2;}'
+            # text = 'int main() {int a[2][2]; int b; b = &a[1];}'
             # text = 'int main(void) { int a = 2; printf("%d", a); }'
             # text = 'int main(void) { int *a; printf("%d", a);}'
             # text = 'int k; int media(int a, int b) { return 2;} int main(void) { int *a; k = 4; *a = media(a, k);}'
@@ -855,11 +1015,17 @@ if __name__ == '__main__':
             # text = 'int main(void) { int *a; scanf("%d", &*a); }'
             # text = 'int a(void) { int a = 0; int b = 2; int c = 3; c = a * b; return 2*c/4; }'
             # text = 'int main(void) { int a = 2*3*4; int b = a - 2 - 1; return a; }'
-            # text = 'int main(void) { int a[3][2]; a[0][0] = 25; } '
+            text = 'int main(void) { int a[3][2]; a[2][1] = 25; int *b = &a[1]; } '
             # text = 'int main(void) { int a[2][2]; int *b; int c; int d; b = &a[0][0]; c = *b; a[0][0] = *b;  } '
             # text = 'int x; int k, y; int main(void) { int a[2][2]; int *b; a[0][1] = *b; } '
             # text = 'int main(void) { int a[3][2]; int b = a[1][1] + 1; } '
-            text = 'int main() {int a = 3 < 2; int b = 4 != 4 > 3;}'
+            # text = 'int main() {int a = 3 < 2 || 1; int b = 4 && 4 > 3;}'
+            # text = 'int main() {int b = 4 && 4 > 3;}'
+            # text = 'int main() {int a = 2; if(1) { int a = 2; } else { int b = 3; } }'
+            # text = 'int main() {int a; int b; while(a > 0) { a = a - 1; int b; } int c = 2; }'
+            # text = 'int main() {int a; int b; while(a > 0) { a = a - 1; if (1) {int a; int b;} } int c = 10; }'
+            # text = 'int main() { if(!1) { printf("HOLA"); } }'
+            # text = 'int main() { int a[2][2]; int b = -a[0][1]; }'
             if text == 'clear':
                 os.system('clear')
                 continue
@@ -875,4 +1041,3 @@ if __name__ == '__main__':
             
             writeToFile()
             break
-
