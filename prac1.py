@@ -1005,7 +1005,7 @@ if __name__ == '__main__':
         try:
             # text = input('> ')
             # text = 'int a; int main() {c = 2;} int c; void a() {c = 2;}' # should and must fail
-            # text = 'int a; int main() {int a = 2;} int c; void a() {c = 2;}'
+            text = 'int a; int main() {int a = 2;} int c; void a() {c = 2;}'
             # text = 'int main() {int a[2][2]; int b; b = &a[1];}'
             # text = 'int main(void) { int a = 2; printf("%d", a); }'
             # text = 'int main(void) { int *a; printf("%d", a);}'
@@ -1015,7 +1015,7 @@ if __name__ == '__main__':
             # text = 'int main(void) { int *a; scanf("%d", &*a); }'
             # text = 'int a(void) { int a = 0; int b = 2; int c = 3; c = a * b; return 2*c/4; }'
             # text = 'int main(void) { int a = 2*3*4; int b = a - 2 - 1; return a; }'
-            text = 'int main(void) { int a[3][2]; a[2][1] = 25; int *b = &a[1]; } '
+            # text = 'int main(void) { int a[3][2]; a[2][1] = 25; int *b = &a[1]; } '
             # text = 'int main(void) { int a[2][2]; int *b; int c; int d; b = &a[0][0]; c = *b; a[0][0] = *b;  } '
             # text = 'int x; int k, y; int main(void) { int a[2][2]; int *b; a[0][1] = *b; } '
             # text = 'int main(void) { int a[3][2]; int b = a[1][1] + 1; } '
