@@ -484,13 +484,16 @@ class CalcParser(Parser):
         
         environ = searchVariable(rid)
         searchNotVariable(lid)
-        
-        if len(environment[environ][rid].dim) != len(dim) and len(dim) != 0:
+                
+        if environ != 0 and len(environment[environ][rid].dim) != len(dim) and len(dim) != 0:
             SysError(f'The dimension does not match the original defined variable dimension')
             
-        CToAssembly(f'\tsubl $4, %esp\n\tmovl {environment[environ][rid].pos - 4*environment[environ][rid].map(dim)}(%ebp), {self.localVar}(%ebp)\n')
+        if environ != 0:
+            CToAssembly(f'\tsubl $4, %esp\n\tmovl {environment[environ][rid].pos - 4*environment[environ][rid].map(dim)}(%ebp), {self.localVar}(%ebp)\n')
+        else:
+            CToAssembly(f'\tsubl $4, %esp\n\tmovl {rid}, {self.localVar}(%ebp)\n')
           
-        environ[-1][rid] = PointerNode(lid, self.localVar, self.env)
+        environment[-1][lid] = PointerNode(lid, self.localVar, self.env)
         self.localVar -= 4
         
           
@@ -1009,11 +1012,12 @@ if __name__ == '__main__':
             # text = input('> ')
             # text = 'int a; int main() {c = 2;} int c; void a() {c = 2;}' # should and must fail
             # text = 'int a; int main() {int a = 2;} int c; void a() {c = 2;}'
-            text = 'int main(void) { if(1) { int a,b; } else { int a = 2; } return 0; }'
+            text = 'int k; int main() { int *a = k; }'
+            # text = 'int main(void) { if(1) { int a,b; } else { int a = 2; } return 0; }'
             # text = 'int main() {int a[2][2]; int b; b = &a[1];}'
             # text = 'int main(void) { int a = 2; printf("%d", a); }'
             # text = 'int main(void) { int *a; printf("%d", a);}'
-            # text = 'int k; int media(int a, int b) { return 2;} int main(void) { int *a; k = 4; *a = media(a, k);}'
+            # text = 'int k;  int media(int a, int b) { return 2;} int main(void) { int *a; k = 4; *a = media(a, k);}'
             # text = 'int main(){int *a, *b; scanf("%d%d", &a, &b);}'
             # text = 'int k; int media(int *a, int* b) { return (*a+*b)/2;} int main(void) { int a; k = 4; *a = 2; *a = media(&a, &k);}'
             # text = 'int main(void) { int *a; scanf("%d", &*a); }'
