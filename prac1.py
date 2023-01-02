@@ -227,7 +227,8 @@ class CalcParser(Parser):
     
     @_('')
     def emptyElse(self, p):
-        global label
+        global label, environment
+        environment.append({})
         CToAssembly(f'\tjmp label{label}\n')
         CToAssembly(f'label{p[-5]}:\n')
         label += 1
@@ -236,7 +237,7 @@ class CalcParser(Parser):
     @_('')
     def emptyEndElse(self, p):
         global environment
-        environment.append({})
+        environment.pop()
         CToAssembly(f'label{p[-4]}:\n')
         self.localVar = searchTopLocalVar()
         print(self.localVar)
