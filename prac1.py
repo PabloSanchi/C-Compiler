@@ -988,6 +988,9 @@ def SysError(msg):
 
 
 def main(text):
+    
+    print(text)
+    
     with open('output.s', 'w') as file:
         file.write('')
 
@@ -1010,9 +1013,10 @@ if __name__ == '__main__':
     while True:
         try:
             # text = input('> ')
+            text = 'int main(void) { printf("Hello world!"); }'
             # text = 'int a; int main() {c = 2;} int c; void a() {c = 2;}' # should and must fail
             # text = 'int a; int main() {int a = 2;} int c; void a() {c = 2;}'
-            text = 'int k; int main() { int *a = k; }'
+            # text = 'int k; int main() { int *a = k; }'
             # text = 'int main(void) { if(1) { int a,b; } else { int a = 2; } return 0; }'
             # text = 'int main() {int a[2][2]; int b; b = &a[1];}'
             # text = 'int main(void) { int a = 2; printf("%d", a); }'
