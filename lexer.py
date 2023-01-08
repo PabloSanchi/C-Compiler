@@ -2,10 +2,15 @@ import os
 from sly import Lexer, Parser
 
 class CalcLexer(Lexer):
-    tokens = {RETURN, STRING, PRINTF, SCANF, VOID, INT, ID, NUM, EQ, LEQ, GEQ, NEQ, OR, AND}
+    tokens = {RETURN, STRING, PRINTF, SCANF, VOID, INT, ID, NUM, EQ, LEQ, GEQ, NEQ, OR, AND, IF, WHILE, ELSE}
     literals = {'&', '=', '!', '<', '>', '(', ')', ';', '+', '-', '*', '/', ',', '{', '}', '[', ']'}
     
     ignore = ' \t'
+    # ignore C comments (/**/)
+    ignore_comment = r'(/\*(.|\n)*?\*/)|(//.*)'
+    # ignode C commnets (//)
+    ignore_comment2 = r'//.*'
+    
 
     STRING = r'".*"'
     ID = r'[a-zA-Z_][a-zA-Z0-9_]*'
@@ -14,7 +19,10 @@ class CalcLexer(Lexer):
     ID['printf'] = PRINTF 
     ID['scanf'] = SCANF
     ID['return'] = RETURN
-    
+    ID['if'] = IF
+    ID['else'] = ELSE
+    ID['while'] = WHILE
+
     EQ = r'=='
     LEQ = r'<='
     GEQ = r'>='
