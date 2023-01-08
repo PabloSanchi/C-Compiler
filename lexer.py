@@ -8,8 +8,6 @@ class CalcLexer(Lexer):
     ignore = ' \t'
     # ignore C comments (/**/)
     ignore_comment = r'(/\*(.|\n)*?\*/)|(//.*)'
-    # ignode C commnets (//)
-    ignore_comment2 = r'//.*'
     
 
     STRING = r'".*"'
