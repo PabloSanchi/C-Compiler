@@ -1,4 +1,4 @@
-import os
+import os, re
 from sly import Lexer, Parser
 
 class CalcLexer(Lexer):
@@ -7,8 +7,12 @@ class CalcLexer(Lexer):
     
     ignore = ' \t'
     # ignore C comments (/**/)
-    ignore_comment = r'(/\*(.|\n)*?\*/)|(//.*)'
-    
+    ignore_comment = r'(//.*)'
+
+    @_(r'/\*(.|\n)*\*/')
+    def ignore_commentBlock(self, t):
+        self.lineno += len([*re.finditer('\n', t.value)])
+
 
     STRING = r'".*"'
     ID = r'[a-zA-Z_][a-zA-Z0-9_]*'
