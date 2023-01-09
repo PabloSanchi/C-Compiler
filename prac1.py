@@ -350,10 +350,14 @@ class CalcParser(Parser):
 
     @_('pointer "=" expr')
     def assign(self, p):
-        global environment
+        global environment, foo
         ID = p.pointer
+        expr = p.expr
         environ = searchVariable(ID) # if does not exists it will give an error
 
+        if isinstance(expr, callNode) and foo[expr.name] == 'void':
+            SysError(f'a value of type "void" cannot be used to assign/initialize an entity of type "int"')
+            
         if isinstance(environment[environ][ID], PointerNode):
             CToAssembly(f'\tmovl {environment[environ][ID].pos}(%ebp), %ebx\n\tpopl %eax\n\tmovl %eax, [%ebx]\n')
         else:
@@ -362,11 +366,14 @@ class CalcParser(Parser):
 
     @_('array "=" expr')
     def assign(self, p):
-        global environment
+        global environment, foo
         ID, dim = p.array
-        
+        expr = p.expr
         environ = searchVariable(ID) # if does not exists it will give an error
         
+        if isinstance(expr, callNode) and foo[expr.name] == 'void': 
+            SysError(f'a value of type "void" cannot be used to assign/initialize an entity of type "int"')
+            
         if environ != 0 and len(environment[environ][ID].dim) != len(dim) and len(dim) != 0:
             SysError(f'The dimension does not match the original defined variable dimension')
         
@@ -431,10 +438,14 @@ class CalcParser(Parser):
     # variable declaration with assignment
     @_('array "=" expr')
     def assignment(self, p):
-        global environment
+        global environment, foo
         id, dim = p.array # id, dims
-        
+        expr = p.expr
         searchNotVariable(id) # if exists it will give an error
+        
+        if isinstance(expr, callNode) and foo[expr.name] == 'void': 
+            SysError(f'a value of type "void" cannot be used to assign/initialize an entity of type "int"')
+            
         if isinstance(p.expr, PointerNode): 
             CToAssembly(f'\tpopl %eax\n\tmovl [%eax], %eax\n\tpushl %eax\n')
         if not dim:
@@ -797,6 +808,14 @@ class FunctionNode:
         
 class OperationNode:
     def __init__(self, operator, param1, param2):
+        global foo
+        
+        if isinstance(param1, callNode) and foo[param1.name].type == 'void':
+            SysError(f'a value of type "void" cannot be used to assign/initialize an entity of type "int"')
+        
+        if isinstance(param2, callNode) and foo[param2.name].type == 'void':
+            SysError(f'a value of type "void" cannot be used to assign/initialize an entity of type "int"')
+        
         self.operator = operator
         self.param1 = param1
         self.param2 = param2
@@ -905,6 +924,10 @@ class OperationNode:
         return ''            
 class UniqueNode:
     def __init__(self, operator, param):   
+        
+        if isinstance(param, callNode) and foo[param.name].type == 'void':
+            SysError(f'a value of type "void" cannot be used to assign/initialize an entity of type "int"')
+            
         self.param = param
         self.operator = operator
         self.write()
