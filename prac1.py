@@ -367,6 +367,9 @@ class CalcParser(Parser):
         
         environ = searchVariable(ID) # if does not exists it will give an error
         
+        if environ != 0 and len(environment[environ][ID].dim) != len(dim) and len(dim) != 0:
+            SysError(f'The dimension does not match the original defined variable dimension')
+        
         if isinstance(p.expr, PointerNode): 
             CToAssembly(f'\tpopl %eax\n\tmovl [%eax], %eax\n\tpushl %eax\n')
         
@@ -387,6 +390,9 @@ class CalcParser(Parser):
         environl = searchVariable(IDl)
         environr = searchVariable(IDr)
 
+        if environl != 0 and len(environment[environl][IDl].dim) != len(diml) and len(diml) != 0:
+            SysError(f'The dimension does not match the original defined variable dimension')
+        
         # leal right variable
         if environr != 0:
             if not dimr:
