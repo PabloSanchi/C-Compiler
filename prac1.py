@@ -413,6 +413,7 @@ class CalcParser(Parser):
             
     @_('expr')
     def assign(self, p):
+        CToAssembly(f'\tpopl %eax\n')
         return p.expr
     
     @_('INT list')
