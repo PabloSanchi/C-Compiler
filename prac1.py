@@ -242,7 +242,7 @@ class CalcParser(Parser):
         environment.pop()
         CToAssembly(f'label{p[-4]}:\n')
         self.localVar = searchTopLocalVar()
-        print(self.localVar)
+        #print(self.localVar)
         
     
     @_('WHILE emptySetLabelWhile "(" expr ")" emptyWhile "{" definition "}" emptyEndWhile definition')
@@ -277,7 +277,7 @@ class CalcParser(Parser):
         CToAssembly(f'\tjmp label{jumpTo} # goto while init label\n') # jump to while first label
         CToAssembly(f'label{exitLabel}: # exit label\n') # exit while label
         self.localVar = searchTopLocalVar() # restore localVar value
-        print(self.localVar)
+        #print(self.localVar)
      
     @_('')
     def emptyScanfPrintf(self, p):
@@ -355,8 +355,8 @@ class CalcParser(Parser):
         expr = p.expr
         environ = searchVariable(ID) # if does not exists it will give an error
 
-        if isinstance(expr, callNode) and foo[expr.name] == 'void':
-            SysError(f'a value of type "void" cannot be used to assign/initialize an entity of type "int"')
+        if isinstance(expr, callNode) and foo[expr.name].type == 'void':
+            SysError(f'A value of type "void" cannot be used as an entity of type "int"')
             
         if isinstance(environment[environ][ID], PointerNode):
             CToAssembly(f'\tmovl {environment[environ][ID].pos}(%ebp), %ebx\n\tpopl %eax\n\tmovl %eax, [%ebx]\n')
@@ -371,10 +371,10 @@ class CalcParser(Parser):
         expr = p.expr
         environ = searchVariable(ID) # if does not exists it will give an error
         
-        if isinstance(expr, callNode) and foo[expr.name] == 'void': 
-            SysError(f'a value of type "void" cannot be used to assign/initialize an entity of type "int"')
+        if isinstance(expr, callNode) and foo[expr.name].type == 'void': 
+            SysError(f'A value of type "void" cannot be used as an entity of type "int"')
             
-        if environ != 0 and len(environment[environ][ID].dim) != len(dim) and len(dim) != 0:
+        if environ != 0 and len(environment[environ][ID].dim) != len(dim):
             SysError(f'The dimension does not match the original defined variable dimension')
         
         if isinstance(p.expr, PointerNode): 
@@ -397,7 +397,7 @@ class CalcParser(Parser):
         environl = searchVariable(IDl)
         environr = searchVariable(IDr)
 
-        if environl != 0 and len(environment[environl][IDl].dim) != len(diml) and len(diml) != 0:
+        if environl != 0 and len(environment[environl][IDl].dim) != len(diml):
             SysError(f'The dimension does not match the original defined variable dimension')
         
         # leal right variable
@@ -420,6 +420,10 @@ class CalcParser(Parser):
             
     @_('expr')
     def assign(self, p):
+        if isinstance(p.expr, callNode) and foo[p.expr.name].type == 'void':
+            return p.expr
+
+        #print(foo[p.expr.name])
         CToAssembly(f'\tpopl %eax\n')
         return p.expr
     
@@ -443,8 +447,8 @@ class CalcParser(Parser):
         expr = p.expr
         searchNotVariable(id) # if exists it will give an error
         
-        if isinstance(expr, callNode) and foo[expr.name] == 'void': 
-            SysError(f'a value of type "void" cannot be used to assign/initialize an entity of type "int"')
+        if isinstance(expr, callNode) and foo[expr.name].type == 'void': 
+            SysError(f'A value of type "void" cannot be used as an entity of type "int"')
             
         if isinstance(p.expr, PointerNode): 
             CToAssembly(f'\tpopl %eax\n\tmovl [%eax], %eax\n\tpushl %eax\n')
@@ -755,8 +759,8 @@ class callNode:
         if name != 'printf' and name != 'scanf':
             if name not in foo:
                 SysError(f'Function <{name}> not defined')
-            if foo[name].type == 'void':
-                SysError(f'Function <{name}> is void type')
+            #if foo[name].type == 'void':
+            #    SysError(f'Function <{name}> is void type')
                 
             if len(params) < foo[name].params:
                 SysError(f'too few arguments to function {name}')
@@ -777,7 +781,7 @@ class callNode:
     def write(self):
         
         for param in self.params[::-1]:
-            print(param)
+            # print(param)
             if param != '':
                 CToAssembly(f'\t{param}\n')
         
@@ -811,10 +815,10 @@ class OperationNode:
         global foo
         
         if isinstance(param1, callNode) and foo[param1.name].type == 'void':
-            SysError(f'a value of type "void" cannot be used to assign/initialize an entity of type "int"')
+            SysError(f'A value of type "void" cannot be used as an entity of type "int"')
         
         if isinstance(param2, callNode) and foo[param2.name].type == 'void':
-            SysError(f'a value of type "void" cannot be used to assign/initialize an entity of type "int"')
+            SysError(f'A value of type "void" cannot be used as an entity of type "int"')
         
         self.operator = operator
         self.param1 = param1
@@ -926,7 +930,7 @@ class UniqueNode:
     def __init__(self, operator, param):   
         
         if isinstance(param, callNode) and foo[param.name].type == 'void':
-            SysError(f'a value of type "void" cannot be used to assign/initialize an entity of type "int"')
+            SysError(f'A value of type "void" cannot be used as an entity of type "int"')
             
         self.param = param
         self.operator = operator
@@ -993,7 +997,7 @@ class IdNode:
         offset, sz = 0, 1 
         # 0 padding left in arr to match dim
         arr = [0]*(len(self.dim) - len(arr)) + arr
-        print(arr)
+        # print(arr)
         for i, j in zip(arr, self.dim):
             offset += sz*i
             sz *= j
@@ -1044,6 +1048,8 @@ if __name__ == '__main__':
         try:
             # text = input('> ')
             text = 'int main(void) { printf("Hello world!"); }'
+            # text = 'int main(void) {int a[2][2]; a = 0;}'
+            # text = 'void a(){int k = 3*2;} int main(){3*a();}'
             # text = 'int a; int main() {c = 2;} int c; void a() {c = 2;}' # should and must fail
             # text = 'int a; int main() {int a = 2;} int c; void a() {c = 2;}'
             # text = 'int k; int main() { int *a = k; }'
