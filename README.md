@@ -1,4 +1,4 @@
-# PL subject final project
+# C to Assembly (x86)
 ## Developers
-Pablo Sanchidrián
+Pablo Sanchidrián<br>
 Rubén Pérez
