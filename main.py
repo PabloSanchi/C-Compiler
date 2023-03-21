@@ -244,11 +244,9 @@ class CalcParser(Parser):
         self.localVar = searchTopLocalVar()
         #print(self.localVar)
         
-    
     @_('WHILE emptySetLabelWhile "(" expr ")" emptyWhile "{" definition "}" emptyEndWhile definition')
     def definition(self, p):
         pass
-    
     
     @_('')
     def emptySetLabelWhile(self, p):
@@ -1022,6 +1020,13 @@ def SysError(msg):
 
 
 def main(text):
+    global environment, var_globales, instructions, constants, label
+
+    environment = [[]]
+    var_globales = []
+    instructions = []
+    constants = []
+    label = 0
     
     print(text)
     
@@ -1035,6 +1040,8 @@ def main(text):
     parser.parse(tokenList)
     writeToFile()
 
+
+
     
 if __name__ == '__main__':
     
@@ -1046,6 +1053,7 @@ if __name__ == '__main__':
 
     while True:
         try:
+            # test inputs
             # text = input('> ')
             text = 'int main(void) { printf("Hello world!"); }'
             # text = 'int main(void) {int a[2][2]; a = 0;}'
